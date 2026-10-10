@@ -190,6 +190,7 @@ class MainActivity : Activity() {
     override fun onBackPressed() {
         when {
             customView != null -> hideCustomView()
+            dlScrim.visibility == View.VISIBLE -> closeDownloads()
             drawerScrim.visibility == View.VISIBLE -> closeDrawer()
             qrOverlay.visibility == View.VISIBLE -> qrOverlay.visibility = View.GONE
             camOverlay.visibility == View.VISIBLE -> {
@@ -355,6 +356,7 @@ class MainActivity : Activity() {
 
         rootFrame.addView(col, FrameLayout.LayoutParams(MATCH, MATCH))
         buildDrawer()
+        buildDownloads()
         setContentView(rootFrame)
         applySplitLayout()
     }
@@ -400,7 +402,8 @@ class MainActivity : Activity() {
                 CookieManager.getInstance().getCookie(dlUrl)?.let { req.addRequestHeader("Cookie", it) }
                 req.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
                 req.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, fileName)
-                (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(req)
+                val dlId = (getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager).enqueue(req)
+                addDownloadRecord(dlId, fileName)
                 Toast.makeText(this, "Đang tải: $fileName", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Toast.makeText(this, "Không tải được: " + e.message, Toast.LENGTH_LONG).show()
@@ -827,11 +830,228 @@ class MainActivity : Activity() {
         bookmarkBtn.setTextColor(if (on) 0xFFFFC107.toInt() else Color.WHITE)
     }
 
-    private fun openDownloads() {
+    // ====================== Trang tai xuong trong app ======================
+
+    private class DlRow(val bar: ProgressBar, val status: TextView, val folder: TextView)
+
+    private lateinit var dlScrim: FrameLayout
+    private lateinit var dlPanel: LinearLayout
+    private lateinit var dlRows: LinearLayout
+    private lateinit var dlEmpty: TextView
+    private val dlRowViews = mutableMapOf<Long, DlRow>()
+    private val dlHandler = Handler(Looper.getMainLooper())
+    private val dlTick = object : Runnable {
+        override fun run() {
+            refreshDownloads()
+            if (dlScrim.visibility == View.VISIBLE) dlHandler.postDelayed(this, 500)
+        }
+    }
+
+    private fun readDownloads(): MutableList<Pair<Long, String>> {
+        val out = mutableListOf<Pair<Long, String>>()
         try {
-            startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            val arr = JSONArray(prefs.getString("downloads", "[]"))
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                out.add(Pair(o.getLong("id"), o.optString("name")))
+            }
+        } catch (e: Exception) { }
+        return out
+    }
+
+    private fun addDownloadRecord(id: Long, name: String) {
+        val list = readDownloads()
+        list.add(0, Pair(id, name))
+        val arr = JSONArray()
+        for (e in list.take(50)) arr.put(JSONObject().put("id", e.first).put("name", e.second))
+        prefs.edit().putString("downloads", arr.toString()).apply()
+        if (dlScrim.visibility == View.VISIBLE) populateDownloads()
+    }
+
+    private fun buildDownloads() {
+        dlScrim = FrameLayout(this).apply {
+            setBackgroundColor(0x66000000)
+            visibility = View.GONE
+            setOnClickListener { closeDownloads() }
+        }
+        dlPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.WHITE)
+            setOnClickListener { }
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setBackgroundColor(COLOR_BAR)
+            setPadding(dp(16), 0, 0, 0)
+        }
+        header.addView(TextView(this).apply {
+            text = "⬇  Tải xuống"
+            textSize = 18f
+            setTextColor(Color.WHITE)
+        }, LinearLayout.LayoutParams(0, MATCH, 1f))
+        header.addView(TextView(this).apply {
+            text = "✕"
+            textSize = 22f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setOnClickListener { closeDownloads() }
+        }, LinearLayout.LayoutParams(dp(56), MATCH))
+        dlPanel.addView(header, LinearLayout.LayoutParams(MATCH, dp(52)))
+        dlEmpty = TextView(this).apply {
+            text = "Chưa có tệp nào được tải xuống."
+            textSize = 16f
+            setTextColor(0xFF666666.toInt())
+            setPadding(dp(16), dp(20), dp(16), dp(20))
+        }
+        dlPanel.addView(dlEmpty, LinearLayout.LayoutParams(MATCH, WRAP))
+        val sc = android.widget.ScrollView(this)
+        dlRows = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        sc.addView(dlRows, FrameLayout.LayoutParams(MATCH, WRAP))
+        dlPanel.addView(sc, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        dlScrim.addView(dlPanel, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.TOP))
+        rootFrame.addView(dlScrim, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
+
+    private fun populateDownloads() {
+        dlRows.removeAllViews()
+        dlRowViews.clear()
+        val list = readDownloads()
+        dlEmpty.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
+        for ((id, name) in list) {
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = Gravity.CENTER_VERTICAL
+                setPadding(dp(16), dp(12), dp(8), dp(12))
+            }
+            val left = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            left.addView(TextView(this).apply {
+                text = name
+                textSize = 16f
+                setTextColor(Color.BLACK)
+                setSingleLine(true)
+                ellipsize = TextUtils.TruncateAt.MIDDLE
+            })
+            val bar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { max = 100 }
+            left.addView(bar, LinearLayout.LayoutParams(MATCH, dp(10)).apply { topMargin = dp(6) })
+            val status = TextView(this).apply {
+                text = "Đang chờ…"
+                textSize = 14f
+                setTextColor(0xFF555555.toInt())
+            }
+            left.addView(status, LinearLayout.LayoutParams(MATCH, WRAP).apply { topMargin = dp(4) })
+            row.addView(left, LinearLayout.LayoutParams(0, WRAP, 1f))
+            val folder = TextView(this).apply {
+                text = "📂"
+                textSize = 28f
+                gravity = Gravity.CENTER
+                visibility = View.GONE
+                setOnClickListener { openDownloadsFolder() }
+            }
+            row.addView(folder, LinearLayout.LayoutParams(dp(56), dp(56)))
+            dlRows.addView(row, LinearLayout.LayoutParams(MATCH, WRAP))
+            dlRowViews[id] = DlRow(bar, status, folder)
+        }
+        refreshDownloads()
+    }
+
+    private fun refreshDownloads() {
+        if (dlRowViews.isEmpty()) return
+        val dm = getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
+        val seen = mutableSetOf<Long>()
+        try {
+            dm.query(DownloadManager.Query().setFilterById(*dlRowViews.keys.toLongArray()))?.use { c ->
+                val iId = c.getColumnIndex(DownloadManager.COLUMN_ID)
+                val iSt = c.getColumnIndex(DownloadManager.COLUMN_STATUS)
+                val iGot = c.getColumnIndex(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR)
+                val iTot = c.getColumnIndex(DownloadManager.COLUMN_TOTAL_SIZE_BYTES)
+                while (c.moveToNext()) {
+                    val id = c.getLong(iId)
+                    val r = dlRowViews[id] ?: continue
+                    seen.add(id)
+                    val got = c.getLong(iGot)
+                    val tot = c.getLong(iTot)
+                    r.folder.visibility = View.GONE
+                    when (c.getInt(iSt)) {
+                        DownloadManager.STATUS_SUCCESSFUL -> {
+                            r.bar.visibility = View.GONE
+                            r.status.text = "✅ Đã tải xuống"
+                            r.status.setTextColor(0xFF2E7D32.toInt())
+                            r.folder.visibility = View.VISIBLE
+                        }
+                        DownloadManager.STATUS_FAILED -> {
+                            r.bar.visibility = View.GONE
+                            r.status.text = "❌ Tải xuống lỗi"
+                            r.status.setTextColor(0xFFC62828.toInt())
+                        }
+                        DownloadManager.STATUS_PAUSED -> {
+                            r.bar.visibility = View.VISIBLE
+                            r.status.text = "⏸ Tạm dừng"
+                        }
+                        DownloadManager.STATUS_PENDING -> {
+                            r.bar.visibility = View.VISIBLE
+                            r.bar.isIndeterminate = true
+                            r.status.text = "Đang chờ…"
+                        }
+                        else -> {
+                            r.bar.visibility = View.VISIBLE
+                            if (tot > 0) {
+                                val pct = (got * 100 / tot).toInt()
+                                r.bar.isIndeterminate = false
+                                r.bar.progress = pct
+                                r.status.text = "Đang tải $pct%  (" + fmtMb(got) + " / " + fmtMb(tot) + ")"
+                            } else {
+                                r.bar.isIndeterminate = true
+                                r.status.text = "Đang tải… " + fmtMb(got)
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) { }
+        for ((id, r) in dlRowViews) if (id !in seen) {
+            r.bar.visibility = View.GONE
+            r.folder.visibility = View.GONE
+            r.status.text = "Tệp không còn trong danh sách tải"
+        }
+    }
+
+    private fun fmtMb(b: Long): String = String.format(java.util.Locale.US, "%.1f MB", b / 1048576.0)
+
+    private fun openDownloads() {
+        val m = resources.displayMetrics
+        val landscape = resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+        val lp = dlPanel.layoutParams as FrameLayout.LayoutParams
+        if (landscape) { lp.width = m.widthPixels / 2; lp.height = MATCH; lp.gravity = Gravity.START }
+        else { lp.width = MATCH; lp.height = m.heightPixels / 2; lp.gravity = Gravity.TOP }
+        dlPanel.layoutParams = lp
+        dlScrim.visibility = View.VISIBLE
+        populateDownloads()
+        dlHandler.removeCallbacks(dlTick)
+        dlHandler.postDelayed(dlTick, 500)
+    }
+
+    private fun closeDownloads() {
+        dlScrim.visibility = View.GONE
+        dlHandler.removeCallbacks(dlTick)
+    }
+
+    // Nut ben phai muc "Da tai xuong": mo thu muc Download tren may.
+    private fun openDownloadsFolder() {
+        try {
+            val i = Intent(Intent.ACTION_VIEW)
+                .setDataAndType(
+                    Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload"),
+                    "vnd.android.document/directory"
+                )
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            startActivity(i)
         } catch (e: Exception) {
-            Toast.makeText(this, "Không mở được danh sách tải xuống", Toast.LENGTH_SHORT).show()
+            try {
+                startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            } catch (e2: Exception) {
+                Toast.makeText(this, "Không mở được thư mục tải xuống", Toast.LENGTH_SHORT).show()
+            }
         }
     }
 
