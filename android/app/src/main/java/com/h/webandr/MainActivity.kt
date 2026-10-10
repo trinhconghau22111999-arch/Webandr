@@ -1987,7 +1987,7 @@ class MainActivity : Activity() {
 
     private fun onPasswordCaptured(origin: String, username: String, password: String) {
         val list = loadPw()
-        if (list.any { it.optString("origin") == origin && it.optBoolean("neverSave") }) return
+        if (pwSavePromptShowing) return
         if (list.any {
                 it.optString("origin") == origin && it.optString("username") == username &&
                         it.optString("password") == password
@@ -2007,16 +2007,12 @@ class MainActivity : Activity() {
                 savePwList(l)
             }
             .setNegativeButton("Không", null)
-            .setNeutralButton("Không bao giờ") { _, _ ->
-                val l = loadPw()
-                l.add(
-                    JSONObject().put("origin", origin).put("username", "")
-                        .put("password", "").put("neverSave", true)
-                )
-                savePwList(l)
-            }
+            .setOnDismissListener { pwSavePromptShowing = false }
             .show()
+        pwSavePromptShowing = true
     }
+
+    private var pwSavePromptShowing = false
 }
 
 // Script chay trong moi trang: bat form dang nhap + dien san mat khau da luu.
@@ -2024,7 +2020,11 @@ private val PW_JS = """
 (function(){
  if(window.__wbPw||!window.AndroidPw)return; window.__wbPw=true;
  function findUser(form,pw){var c=form.querySelectorAll('input[type="text"],input[type="email"],input[autocomplete="username"],input:not([type])');for(var i=0;i<c.length;i++){if(c[i]!==pw&&c[i].value)return c[i];}return null;}
- document.addEventListener('submit',function(e){try{var f=e.target;if(!(f instanceof HTMLFormElement))return;var pw=f.querySelector('input[type="password"]');if(!pw||!pw.value)return;var u=findUser(f,pw);AndroidPw.postMessage(JSON.stringify({t:'save',u:u?u.value:'',p:pw.value}));}catch(x){}},true);
+ var lastKey='',lastT=0;
+ function trySave(pw){try{if(!pw||!pw.value)return;var scope=pw.closest('form')||document;var u=findUser(scope,pw);var uv=u?u.value:'';var key=uv+'|'+pw.value;var now=Date.now();if(key===lastKey&&now-lastT<4000)return;lastKey=key;lastT=now;AndroidPw.postMessage(JSON.stringify({t:'save',u:uv,p:pw.value}));}catch(x){}}
+ document.addEventListener('submit',function(e){try{var f=e.target;if(!(f instanceof HTMLFormElement))return;trySave(f.querySelector('input[type="password"]'));}catch(x){}},true);
+ document.addEventListener('keydown',function(e){try{if(e.key!=='Enter')return;var el=e.target;if(!el||el.tagName!=='INPUT')return;var pw=el.type==='password'?el:(el.closest('form')||document).querySelector('input[type="password"]');trySave(pw);}catch(x){}},true);
+ document.addEventListener('click',function(e){try{var t=e.target&&e.target.closest?e.target.closest('button,input[type="submit"],input[type="button"],[role="button"]'):null;if(!t)return;var pws=document.querySelectorAll('input[type="password"]');for(var i=0;i<pws.length;i++){if(pws[i].value){trySave(pws[i]);break;}}}catch(x){}},true);
  function fill(u,p){var pw=document.querySelector('input[type="password"]');if(!pw)return;pw.value=p;pw.dispatchEvent(new Event('input',{bubbles:true}));pw.dispatchEvent(new Event('change',{bubbles:true}));
   if(u){var scope=pw.closest('form')||document;var ui=scope.querySelector('input[type="text"],input[type="email"],input[autocomplete="username"],input:not([type])');if(ui){ui.value=u;ui.dispatchEvent(new Event('input',{bubbles:true}));ui.dispatchEvent(new Event('change',{bubbles:true}));}}}
  AndroidPw.onmessage=function(ev){try{var m=JSON.parse(ev.data);if(m.t==='fill')fill(m.u,m.p);}catch(x){}};
