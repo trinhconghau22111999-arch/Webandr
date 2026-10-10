@@ -91,6 +91,7 @@ class MainActivity : Activity() {
         var playing: Boolean = false     // dang phat nhac/video
         var discarded: Boolean = false   // da giai phong WebView, chi con nho URL
         var lastUsed: Long = System.currentTimeMillis()
+        var state: Bundle? = null        // lich su Back/Forward luu lai khi tab bi giai phong
     }
 
     // Giu 2 script chay luc trang bat dau tai (mo link 1 cham + chan quang cao YouTube) de goi lai khi doi cai dat.
@@ -1973,6 +1974,12 @@ class MainActivity : Activity() {
         if (t.discarded || t === active || t.playing || !t.url.startsWith("http")) return
         val wv = t.webView
         zoomRunnables.remove(wv)?.let { wv.removeCallbacks(it) }
+        // Luu lich su Back/Forward de nap lai khi bam vao tab.
+        try {
+            val b = Bundle()
+            wv.saveState(b)
+            t.state = b
+        } catch (e: Exception) { t.state = null }
         content.removeView(wv)
         wv.stopLoading()
         wv.destroy()
@@ -1993,7 +2000,11 @@ class MainActivity : Activity() {
         t.loadedAt = 0L
         t.button.alpha = 1f
         setupClients(t)
-        if (t.url.startsWith("http")) go(wv, t.url)
+        val st = t.state
+        t.state = null
+        if (t.url.startsWith("http")) applyInitialScale(wv, t.url)
+        val restored = try { st != null && wv.restoreState(st) != null } catch (e: Exception) { false }
+        if (!restored && t.url.startsWith("http")) go(wv, t.url)
     }
 
     // ====================== Chan web den / lua dao ======================
