@@ -740,7 +740,6 @@ class MainActivity : Activity() {
         m.add(0, 5, 0, "QR Remote Input")
         m.add(0, 9, 0, "QR Cam (xem webcam điện thoại)")
         m.add(0, 11, 0, "Chặn web đen / lừa đảo")
-        m.add(0, 12, 0, "Mật khẩu đã lưu")
         m.add(0, 13, 0, "Chặn quảng cáo YouTube (tự bấm Bỏ qua)").apply {
             isCheckable = true
             isChecked = adSkipOn
@@ -759,7 +758,6 @@ class MainActivity : Activity() {
                 7 -> clearData()
                 9 -> toggleCam()
                 11 -> showPhishingManager()
-                12 -> showPasswordList()
                 13 -> toggleAdSkip()
                 14 -> toggleOneTap()
                 15 -> resetZoom()
@@ -1943,19 +1941,48 @@ class MainActivity : Activity() {
                 if (p.isNotEmpty()) runOnUiThread { onPasswordCaptured(origin, u, p) }
             }
             "ask" -> {
-                val match = loadPw().firstOrNull {
+                val matches = loadPw().filter {
                     it.optString("origin") == origin && !it.optBoolean("neverSave") &&
                             it.optString("password").isNotEmpty()
                 }
-                if (match != null) {
-                    reply.postMessage(
-                        JSONObject().put("t", "fill")
-                            .put("u", match.optString("username"))
-                            .put("p", match.optString("password")).toString()
-                    )
-                }
+                if (matches.isNotEmpty()) runOnUiThread { suggestPassword(origin, matches, reply) }
             }
         }
+    }
+
+    private var pwPromptShowing = false
+
+    // De xuat dien mat khau: chi hien ten tai khoan, khong hien mat khau; chi dien khi nguoi dung dong y.
+    private fun suggestPassword(origin: String, matches: List<JSONObject>, reply: JavaScriptReplyProxy) {
+        if (pwPromptShowing) return
+        pwPromptShowing = true
+        fun fillWith(o: JSONObject) {
+            try {
+                reply.postMessage(
+                    JSONObject().put("t", "fill")
+                        .put("u", o.optString("username"))
+                        .put("p", o.optString("password")).toString()
+                )
+            } catch (e: Exception) { }
+        }
+        fun label(o: JSONObject) = o.optString("username").ifEmpty { "(không có tên tài khoản)" }
+        val b = AlertDialog.Builder(this)
+            .setOnDismissListener { pwPromptShowing = false }
+            .setNegativeButton("Không", null)
+        if (matches.size == 1) {
+            val o = matches[0]
+            b.setTitle("Dùng mật khẩu đã lưu?")
+                .setMessage(origin + "\n" + label(o))
+                .setPositiveButton("Điền") { _, _ -> fillWith(o) }
+                .setNeutralButton("Xoá") { _, _ ->
+                    savePwList(loadPw().filter { it.optString("origin") != origin || it.optString("username") != o.optString("username") })
+                }
+        } else {
+            val names = matches.map { label(it) }.toTypedArray()
+            b.setTitle("Chọn tài khoản đã lưu")
+                .setItems(names) { _, i -> fillWith(matches[i]) }
+        }
+        b.show()
     }
 
     private fun onPasswordCaptured(origin: String, username: String, password: String) {
@@ -1988,38 +2015,6 @@ class MainActivity : Activity() {
                 )
                 savePwList(l)
             }
-            .show()
-    }
-
-    private fun showPasswordList() {
-        if (securePrefs == null) {
-            Toast.makeText(this, "Thiết bị không hỗ trợ lưu mật khẩu an toàn", Toast.LENGTH_LONG).show()
-            return
-        }
-        val list = loadPw()
-        if (list.isEmpty()) {
-            Toast.makeText(this, "Chưa có mật khẩu nào được lưu", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val labels = list.map {
-            it.optString("origin") + if (it.optBoolean("neverSave")) "  (không bao giờ lưu)"
-            else if (it.optString("username").isNotEmpty()) "  •  " + it.optString("username") else ""
-        }.toTypedArray()
-        AlertDialog.Builder(this)
-            .setTitle("Mật khẩu đã lưu (chạm để xoá)")
-            .setItems(labels) { _, i ->
-                AlertDialog.Builder(this)
-                    .setTitle("Xoá mục này?")
-                    .setMessage(labels[i])
-                    .setPositiveButton("Xoá") { _, _ ->
-                        val l = loadPw()
-                        if (i < l.size) l.removeAt(i)
-                        savePwList(l)
-                    }
-                    .setNegativeButton("Giữ lại", null)
-                    .show()
-            }
-            .setNegativeButton("Đóng", null)
             .show()
     }
 }
