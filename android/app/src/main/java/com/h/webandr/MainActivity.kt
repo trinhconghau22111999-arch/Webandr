@@ -79,7 +79,7 @@ private const val COLOR_TAB_TEXT = 0xFF5A4A7A.toInt()
 @Suppress("DEPRECATION")
 class MainActivity : Activity() {
 
-    private class Tab(val webView: WebView, val button: TextView) {
+    private class Tab(val webView: WebView, val button: TextView, val holder: View = button) {
         var title: String = "Tab mới"
         var url: String = ""
         var desktop: Boolean = false
@@ -108,7 +108,6 @@ class MainActivity : Activity() {
     private lateinit var splitRoot: LinearLayout
     private lateinit var splitPaneHolder: FrameLayout
 
-    private lateinit var oneTapBtn: TextView
     private var oneTapOn = true      // true = chạm vào link là mở (mặc định, như trình duyệt thường)
     private var adSkipOn = true      // tự bấm "Bỏ qua" quảng cáo YouTube
     private var lastConfigChangeAt = 0L
@@ -227,7 +226,9 @@ class MainActivity : Activity() {
             layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
             setOnClickListener { onClick(it) }
         }
+        bar.addView(iconBtn("⋮") { showMenu(it) })
         bar.addView(iconBtn("◀") { active?.webView?.let { w -> if (w.canGoBack()) w.goBack() } })
+        bar.addView(iconBtn("▶") { active?.webView?.let { w -> if (w.canGoForward()) w.goForward() } })
         bar.addView(iconBtn("⟳") { active?.webView?.reload() })
 
         urlBar = EditText(this).apply {
@@ -251,10 +252,7 @@ class MainActivity : Activity() {
             }
         }
         bar.addView(urlBar, LinearLayout.LayoutParams(0, dp(40), 1f))
-        oneTapBtn = iconBtn("👆") { toggleOneTap() }
-        bar.addView(oneTapBtn)
-        updateOneTapBtn()
-        bar.addView(iconBtn("⋮") { showMenu(it) })
+        bar.addView(iconBtn("✕") { finishAndRemoveTask() })
         col.addView(bar, LinearLayout.LayoutParams(MATCH, WRAP))
 
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -291,7 +289,27 @@ class MainActivity : Activity() {
         splitRoot = LinearLayout(this)
         splitRoot.addView(splitPaneHolder, LinearLayout.LayoutParams(MATCH, 0, 3f))
         splitRoot.addView(content, LinearLayout.LayoutParams(MATCH, 0, 7f))
-        col.addView(splitRoot, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        val body = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        val sideScroll = android.widget.ScrollView(this).apply {
+            isVerticalScrollBarEnabled = false
+            setBackgroundColor(COLOR_TAB_BG)
+        }
+        val sideCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        for ((name, url) in splitUrls) {
+            val b = TextView(this).apply {
+                text = name.take(2)
+                textSize = 14f
+                gravity = Gravity.CENTER
+                setTextColor(COLOR_BAR)
+                setOnClickListener { openMiniApp(url) }
+                setOnLongClickListener { Toast.makeText(this@MainActivity, name, Toast.LENGTH_SHORT).show(); true }
+            }
+            sideCol.addView(b, LinearLayout.LayoutParams(dp(40), dp(44)))
+        }
+        sideScroll.addView(sideCol, FrameLayout.LayoutParams(WRAP, WRAP))
+        body.addView(sideScroll, LinearLayout.LayoutParams(dp(40), MATCH))
+        body.addView(splitRoot, LinearLayout.LayoutParams(0, MATCH, 1f))
+        col.addView(body, LinearLayout.LayoutParams(MATCH, 0, 1f))
 
         qrOverlay = FrameLayout(this).apply {
             setBackgroundColor(0xFF1A1030.toInt())
@@ -392,10 +410,23 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(12), 0, dp(12), 0)
         }
-        val tab = Tab(wv, btn)
+        val closeX = TextView(this).apply {
+            text = "✕"
+            textSize = 13f
+            gravity = Gravity.CENTER
+            setTextColor(COLOR_TAB_TEXT)
+            setPadding(dp(8), 0, dp(10), 0)
+        }
+        val holder = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            addView(btn, LinearLayout.LayoutParams(WRAP, MATCH))
+            addView(closeX, LinearLayout.LayoutParams(WRAP, MATCH))
+        }
+        val tab = Tab(wv, btn, holder)
         btn.setOnClickListener { selectTab(tab) }
-        btn.setOnLongClickListener { closeTab(tab); true }
-        tabBar.addView(btn, LinearLayout.LayoutParams(WRAP, MATCH))
+        closeX.setOnClickListener { closeTab(tab) }
+        tabBar.addView(holder, LinearLayout.LayoutParams(WRAP, MATCH))
 
         wv.visibility = View.GONE
         content.addView(wv, 0, FrameLayout.LayoutParams(MATCH, MATCH))
@@ -412,7 +443,7 @@ class MainActivity : Activity() {
         for (t in tabs) {
             val on = t === tab
             t.webView.visibility = if (on) View.VISIBLE else View.GONE
-            t.button.setBackgroundColor(if (on) COLOR_TAB_ON else Color.TRANSPARENT)
+            t.holder.setBackgroundColor(if (on) COLOR_TAB_ON else Color.TRANSPARENT)
             t.button.setTextColor(if (on) COLOR_BAR else COLOR_TAB_TEXT)
         }
         urlBar.setText(tab.url)
@@ -423,7 +454,7 @@ class MainActivity : Activity() {
         val idx = tabs.indexOf(tab)
         if (idx < 0) return
         tabs.removeAt(idx)
-        tabBar.removeView(tab.button)
+        tabBar.removeView(tab.holder)
         content.removeView(tab.webView)
         tab.webView.post { tab.webView.destroy() }
         if (tabs.isEmpty()) {
@@ -643,18 +674,16 @@ class MainActivity : Activity() {
         val popup = PopupMenu(this, anchor)
         val m = popup.menu
         val bookmarked = tab != null && readList("bookmarks").any { it[1] == tab.url }
-        m.add(0, 1, 0, "Tab mới")
-        m.add(0, 2, 0, if (bookmarked) "★ Bỏ dấu trang" else "☆ Thêm dấu trang")
-        m.add(0, 3, 0, "Dấu trang")
-        m.add(0, 4, 0, "Lịch sử")
-        m.add(0, 5, 0, "QR Remote Input")
         m.add(0, 6, 0, "Chế độ máy tính").apply {
             isCheckable = true
             isChecked = tab?.desktop == true
         }
-        m.add(0, 7, 0, "Xoá cache và lịch sử")
+        m.add(0, 4, 0, "Lịch sử")
+        m.add(0, 7, 0, "Xoá lịch sử")
+        m.add(0, 3, 0, "Dấu trang")
+        m.add(0, 2, 0, if (bookmarked) "★ Bỏ dấu trang" else "☆ Thêm dấu trang")
+        m.add(0, 5, 0, "QR Remote Input")
         m.add(0, 9, 0, "QR Cam (xem webcam điện thoại)")
-        m.add(0, 10, 0, "Chia đôi màn hình")
         m.add(0, 11, 0, "Chặn web đen / lừa đảo")
         m.add(0, 12, 0, "Mật khẩu đã lưu")
         m.add(0, 13, 0, "Chặn quảng cáo YouTube (tự bấm Bỏ qua)").apply {
@@ -666,19 +695,15 @@ class MainActivity : Activity() {
             isChecked = oneTapOn
         }
         m.add(0, 15, 0, "Đặt lại zoom trang này")
-        m.add(0, 8, 0, "Đóng tab này")
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
-                1 -> newTab(HOME)
                 2 -> toggleBookmark()
                 3 -> showList("Dấu trang", "bookmarks", false)
                 4 -> showList("Lịch sử", "history", true)
                 5 -> toggleQr()
                 6 -> toggleDesktop()
                 7 -> clearData()
-                8 -> active?.let { closeTab(it) }
                 9 -> toggleCam()
-                10 -> showSplitMenu()
                 11 -> showPhishingManager()
                 12 -> showPasswordList()
                 13 -> toggleAdSkip()
@@ -700,7 +725,7 @@ class MainActivity : Activity() {
     private fun clearData() {
         active?.webView?.clearCache(true)
         prefs.edit().remove("history").apply()
-        Toast.makeText(this, "Đã xoá cache và lịch sử", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Đã xoá lịch sử", Toast.LENGTH_SHORT).show()
     }
 
     // ====================== Dau trang / Lich su ======================
@@ -1153,9 +1178,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun updateOneTapBtn() {
-        oneTapBtn.alpha = if (oneTapOn) 1f else 0.35f
-    }
+    private fun updateOneTapBtn() { }
 
     private fun toggleOneTap() {
         oneTapOn = !oneTapOn
@@ -1298,6 +1321,13 @@ class MainActivity : Activity() {
         content.layoutParams =
             if (landscape) LinearLayout.LayoutParams(0, MATCH, 5f) else LinearLayout.LayoutParams(MATCH, 0, 7f)
         splitPaneHolder.visibility = if (splitService != null) View.VISIBLE else View.GONE
+    }
+
+    // Cot app mini ben trai: mo dich vu o tab da co (cung trang chu) hoac tab moi.
+    private fun openMiniApp(url: String) {
+        val host = originOf(url)
+        val existing = tabs.firstOrNull { host != null && originOf(it.url) == host }
+        if (existing != null) selectTab(existing) else newTab(url)
     }
 
     private fun showSplitMenu() {
