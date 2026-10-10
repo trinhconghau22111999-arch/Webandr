@@ -629,9 +629,13 @@ class MainActivity : Activity() {
                     if (isYoutubeUrl(url)) view?.evaluateJavascript(ytScript(adSkipOn), null)
                 }
                 if (url != null && url.startsWith("http")) addHistory(view?.title ?: url, url)
-                pendingGoogleEmail?.let { em ->
-                    if (url != null && url.contains("accounts.google.com")) view?.evaluateJavascript(googleFillScript(em), null)
-                    else if (url != null && url.startsWith("http") && !url.contains("google.com")) pendingGoogleEmail = null
+                val pendingEm = pendingGoogleEmail
+                if (pendingEm != null && url != null) {
+                    if (url.contains("accounts.google.com")) {
+                        view?.evaluateJavascript(googleFillScript(pendingEm), null)
+                    } else if (url.startsWith("http") && !url.contains("google.com")) {
+                        pendingGoogleEmail = null
+                    }
                 }
             }
         }
