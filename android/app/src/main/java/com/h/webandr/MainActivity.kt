@@ -629,6 +629,10 @@ class MainActivity : Activity() {
                     if (isYoutubeUrl(url)) view?.evaluateJavascript(ytScript(adSkipOn), null)
                 }
                 if (url != null && url.startsWith("http")) addHistory(view?.title ?: url, url)
+                pendingGoogleEmail?.let { em ->
+                    if (url != null && url.contains("accounts.google.com")) view?.evaluateJavascript(googleFillScript(em), null)
+                    else if (url != null && url.startsWith("http") && !url.contains("google.com")) pendingGoogleEmail = null
+                }
             }
         }
 
@@ -724,29 +728,64 @@ class MainActivity : Activity() {
     }
 
     @Deprecated("Deprecated in Java")
-    // Hien hop chon tai khoan Google cua he thong (khong can cap quyen), roi mo trang dang nhap
-    // voi san email do. Mat khau/xac minh van do Google yeu cau trong trang.
+    // Chon tai khoan Google cua he thong (khong can cap quyen). Neu may khong tra ve duoc
+    // thi chuyen sang o nhap email. Sau do mo trang dang nhap va tu dien email vao o.
+    private var pendingGoogleEmail: String? = null
+
+    @Suppress("DEPRECATION")
     private fun pickGoogleAccount() {
         try {
-            @Suppress("DEPRECATION")
-            val i = android.accounts.AccountManager.newChooseAccountIntent(
-                null, null, arrayOf("com.google"), null, null, null, null
-            )
+            val types = arrayOf("com.google")
+            val i = if (Build.VERSION.SDK_INT >= 26)
+                android.accounts.AccountManager.newChooseAccountIntent(null, null, types, null, null, null, null)
+            else
+                android.accounts.AccountManager.newChooseAccountIntent(null, null, types, true, null, null, null, null)
             startActivityForResult(i, REQ_ACCOUNT)
-        } catch (e: Exception) {
-            Toast.makeText(this, "Không mở được danh sách tài khoản: " + e.message, Toast.LENGTH_LONG).show()
+        } catch (e: Throwable) {
+            showGoogleEmailInput()
         }
     }
+
+    private fun showGoogleEmailInput() {
+        val et = EditText(this).apply {
+            hint = "ten@gmail.com"
+            setSingleLine(true)
+            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Nhập email Google")
+            .setMessage("Không lấy được danh sách tài khoản của máy. Nhập email để điền sẵn vào trang đăng nhập.")
+            .setView(et)
+            .setPositiveButton("Đăng nhập") { _, _ ->
+                val v = et.text.toString().trim()
+                if (v.contains("@")) startGoogleSignIn(v)
+            }
+            .setNegativeButton("Huỷ", null)
+            .show()
+    }
+
+    private fun startGoogleSignIn(email: String) {
+        pendingGoogleEmail = email
+        val e = Uri.encode(email)
+        val url = "https://accounts.google.com/ServiceLogin?Email=" + e + "&login_hint=" + e +
+                "&continue=" + Uri.encode("https://www.google.com/")
+        active?.webView?.let { go(it, url) }
+    }
+
+    // Dien email vao o dinh danh cua trang dang nhap Google roi bam "Tiep theo".
+    private fun googleFillScript(email: String): String =
+        "(function(e){var t=0;var iv=setInterval(function(){" +
+        "var i=document.querySelector('input[type=email],#identifierId,input[name=identifier]');" +
+        "if(i){clearInterval(iv);if(i.value!==e){var st=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;" +
+        "st.call(i,e);i.dispatchEvent(new Event('input',{bubbles:true}));i.dispatchEvent(new Event('change',{bubbles:true}));" +
+        "setTimeout(function(){var b=document.querySelector('#identifierNext button,#identifierNext');if(b)b.click()},500)}}" +
+        "else if(++t>40)clearInterval(iv)},250)})(" + JSONObject.quote(email) + ")"
 
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == REQ_ACCOUNT) {
             val email = data?.getStringExtra(android.accounts.AccountManager.KEY_ACCOUNT_NAME)
-            if (resultCode == RESULT_OK && !email.isNullOrEmpty()) {
-                val e = Uri.encode(email)
-                val url = "https://accounts.google.com/ServiceLogin?Email=" + e + "&login_hint=" + e +
-                        "&continue=" + Uri.encode("https://www.google.com/")
-                active?.webView?.let { go(it, url) }
-            }
+            if (resultCode == RESULT_OK && !email.isNullOrEmpty()) startGoogleSignIn(email)
+            else showGoogleEmailInput()
             return
         }
         if (requestCode == REQ_FILE) {
