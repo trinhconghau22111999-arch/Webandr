@@ -542,6 +542,7 @@ class MainActivity : Activity() {
         }
 
         attachPasswordBridge(wv)
+        attachAcctBridge(wv)
         installPageScripts(wv)
 
         // Khi TAT "mo link 1 cham": nhan giu 1 link de chon mo (thay cho chuot phai o ban may tinh).
@@ -731,6 +732,7 @@ class MainActivity : Activity() {
                     if (isYoutubeUrl(url)) view?.evaluateJavascript(ytScript(adSkipOn), null)
                 }
                 if (url != null && url.startsWith("http") && !url.contains(translateSuffix)) addHistory(view?.title ?: url, url)
+                        if (url != null && url.contains("accounts.google.com")) view?.evaluateJavascript(ACCT_HOOK_JS, null)
                 val pendingEm = pendingGoogleEmail
                 if (pendingEm != null && url != null) {
                     if (url.contains("accounts.google.com")) {
@@ -852,6 +854,69 @@ class MainActivity : Activity() {
         }
     }
 
+    // Cau noi: khi bam vao o email o trang dang nhap Google thi app hien danh sach tai khoan de chon.
+    private val ACCT_HOOK_JS = "(function(){if(window.__wbAcct)return;window.__wbAcct=1;" +
+        "function hook(){var i=document.querySelector('input[type=email],#identifierId,input[name=identifier]');" +
+        "if(!i||i.__wbh)return;i.__wbh=1;" +
+        "var f=function(){if(i.value)return;try{AndroidAcct.postMessage('pick')}catch(e){}};" +
+        "i.addEventListener('focus',f);i.addEventListener('click',f);}" +
+        "hook();setInterval(hook,500)})()"
+
+    private var acctPromptShowing = false
+
+    private fun attachAcctBridge(wv: WebView) {
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
+                WebViewCompat.addWebMessageListener(wv, "AndroidAcct", setOf("https://accounts.google.com")) { view, message, _, isMainFrame, _ ->
+                    if (isMainFrame && message.data == "pick") runOnUiThread { showGoogleAccountPicker(view) }
+                }
+            }
+        } catch (e: Exception) { }
+    }
+
+    // Email Google da dung (lan chon/nhap truoc) + ten tai khoan Google da luu mat khau.
+    private fun googleEmails(): List<String> {
+        val out = linkedSetOf<String>()
+        try {
+            val a = JSONArray(prefs.getString("gmails", "[]"))
+            for (i in 0 until a.length()) out.add(a.getString(i))
+        } catch (e: Exception) { }
+        for (o in loadPw()) {
+            if (o.optString("origin").contains("google.com") && o.optString("username").contains("@"))
+                out.add(o.optString("username"))
+        }
+        return out.toList()
+    }
+
+    private fun rememberGmail(email: String) {
+        val l = googleEmails().toMutableList()
+        l.remove(email)
+        l.add(0, email)
+        prefs.edit().putString("gmails", JSONArray(l.take(10)).toString()).apply()
+    }
+
+    private fun showGoogleAccountPicker(wv: WebView) {
+        if (acctPromptShowing) return
+        val emails = googleEmails()
+        val items = emails + listOf("Chọn tài khoản trên máy…", "Nhập email khác…")
+        AlertDialog.Builder(this)
+            .setTitle("Chọn tài khoản Google")
+            .setItems(items.toTypedArray()) { _, i ->
+                when {
+                    i < emails.size -> {
+                        rememberGmail(emails[i])
+                        wv.evaluateJavascript(googleFillScript(emails[i]), null)
+                    }
+                    i == emails.size -> pickGoogleAccount()
+                    else -> showGoogleEmailInput()
+                }
+            }
+            .setNegativeButton("Đóng", null)
+            .setOnDismissListener { acctPromptShowing = false }
+            .show()
+        acctPromptShowing = true
+    }
+
     private fun showGoogleEmailInput() {
         val et = EditText(this).apply {
             hint = "ten@gmail.com"
@@ -871,6 +936,7 @@ class MainActivity : Activity() {
     }
 
     private fun startGoogleSignIn(email: String) {
+        rememberGmail(email)
         pendingGoogleEmail = email
         val e = Uri.encode(email)
         val url = "https://accounts.google.com/ServiceLogin?Email=" + e + "&login_hint=" + e +
