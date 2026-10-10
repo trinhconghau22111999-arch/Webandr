@@ -313,10 +313,11 @@ class MainActivity : Activity() {
         tabsAndPlus.addView(plus, LinearLayout.LayoutParams(dp(44), MATCH))
         scroll.addView(tabsAndPlus, FrameLayout.LayoutParams(WRAP, MATCH))
         tabRow.addView(scroll, LinearLayout.LayoutParams(0, MATCH, 1f))
-        val bmBtn = TextView(this).apply {
-            text = "🔖"
-            textSize = 18f
-            gravity = Gravity.CENTER
+        val bmBtn = android.widget.ImageView(this).apply {
+            setImageResource(R.drawable.ic_stars_nested)
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            setPadding(dp(9), dp(7), dp(9), dp(7))
+            contentDescription = "Dấu trang"
             setOnClickListener { openDrawer() }
         }
         tabRow.addView(bmBtn, LinearLayout.LayoutParams(dp(44), MATCH))
@@ -338,13 +339,14 @@ class MainActivity : Activity() {
         }
         val sideCol = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         for ((name, _) in splitUrls) {
-            val spec = sideIconSpec[name] ?: Triple(name.take(1), 0xFF888888.toInt(), Color.WHITE)
-            val b = TextView(this).apply {
-                text = spec.first
-                textSize = 16f
-                typeface = android.graphics.Typeface.DEFAULT_BOLD
-                gravity = Gravity.CENTER
-                setTextColor(spec.third)
+            val spec = sideIconSpec[name]
+            val b = android.widget.ImageView(this).apply {
+                if (spec != null) {
+                    setImageResource(spec.first)
+                    setPadding(dp(spec.third), dp(spec.third), dp(spec.third), dp(spec.third))
+                }
+                scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+                contentDescription = name
                 setOnClickListener { toggleSplit(name); updateSideIcons() }
                 setOnLongClickListener { Toast.makeText(this@MainActivity, name, Toast.LENGTH_SHORT).show(); true }
             }
@@ -1747,14 +1749,15 @@ class MainActivity : Activity() {
         splitPaneHolder.visibility = if (splitService != null) View.VISIBLE else View.GONE
     }
 
+    // (icon chinh thuc dang vector, mau nen hinh tron, do dem dp)
     private val sideIconSpec = mapOf(
-        "Telegram" to Triple("✈", 0xFF229ED9.toInt(), Color.WHITE),
-        "Zalo" to Triple("Z", 0xFF0068FF.toInt(), Color.WHITE),
-        "Facebook" to Triple("f", 0xFF1877F2.toInt(), Color.WHITE),
-        "YouTube" to Triple("▶", 0xFFFF0000.toInt(), Color.WHITE),
-        "Google" to Triple("G", Color.WHITE, 0xFF4285F4.toInt())
+        "Telegram" to Triple(R.drawable.ic_telegram, Color.WHITE, 2),
+        "Zalo" to Triple(R.drawable.ic_zalo, 0xFF0068FF.toInt(), 4),
+        "Facebook" to Triple(R.drawable.ic_facebook, Color.WHITE, 2),
+        "YouTube" to Triple(R.drawable.ic_youtube, Color.WHITE, 5),
+        "Google" to Triple(R.drawable.ic_google, Color.WHITE, 6)
     )
-    private val sideIcons = mutableMapOf<String, TextView>()
+    private val sideIcons = mutableMapOf<String, View>()
 
     // Icon tron theo mau thuong hieu; icon dang chia doi duoc vien dam, cac icon con lai mo di.
     private fun updateSideIcons() {
