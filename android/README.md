@@ -18,10 +18,30 @@ Repo này được sao chép từ `Qrtuxa` (đủ lịch sử commit). Thư mụ
   tự nhấn Enter (giống bản máy tính). Dùng chung Firebase `qrremod`, nhánh
   `sessions/{id}`.
 
-## Chưa chuyển sang Android (còn ở bản desktop)
+## Các tính năng đã chuyển thêm
 
-QR Cam (xem webcam điện thoại qua WebRTC), quay video theo lịch, mật khẩu đã lưu,
-chia đôi màn hình, trang cảnh báo web đen/lừa đảo tự quản lý.
+- **QR Cam** (menu ⋮ → "QR Cam"): nhập mã 6 số của app QrtuxaCam (tối đa 4 điện thoại),
+  xem trực tiếp qua WebRTC (lưới 1/2/4 ô), tự nối lại khi mất tín hiệu, nhớ mã
+  đã nhập. Dùng chung Firebase `qrremod`, nhánh `rooms/{mã}`. Điện thoại cũng có
+  thể gõ chữ vào ô đang chọn trong trình duyệt (text-edit).
+- **Quay video + hẹn giờ**: nút ⏺ trên từng ô để quay, nút ⚙ đặt giờ bắt đầu/kết
+  thúc lặp lại mỗi ngày. File `.webm` lưu ở thư mục riêng của app
+  (`Android/data/com.h.webandr/files/Movies/QRCam`); app báo đường dẫn khi lưu xong.
+  Cần để app mở (màn hình tự giữ sáng khi đang kết nối/quay).
+- **Mật khẩu đã lưu**: hỏi lưu khi gửi form đăng nhập, tự điền khi vào lại trang,
+  lưu mã hoá bằng Android Keystore. Xem/xoá ở menu ⋮ → "Mật khẩu đã lưu".
+- **Chia đôi màn hình** (Telegram/Zalo/Facebook/YouTube/Google): menu ⋮ → "Chia đôi
+  màn hình". Màn hình dọc: pane ở trên; màn hình ngang: pane bên trái (2/7).
+  Tắt chia đôi không huỷ phiên đăng nhập của pane.
+- **Chặn web đen / lừa đảo**: danh sách tên miền tự quản lý (menu ⋮ → "Chặn web
+  đen / lừa đảo"); vào tên miền đó (hoặc tên miền con) sẽ hiện trang cảnh báo với
+  nút "Quay lại an toàn" / "vẫn tiếp tục".
+
+## Chưa chuyển sang Android
+
+Gửi/nhận tệp và sửa ảnh qua DataChannel của QR Cam, chặn quảng cáo YouTube bằng
+script tự bấm "Bỏ qua", nhớ mức zoom theo trang, nút "mở link 1 chạm", nhật ký
+console. Các phần này vẫn còn ở bản desktop.
 
 ## Build
 

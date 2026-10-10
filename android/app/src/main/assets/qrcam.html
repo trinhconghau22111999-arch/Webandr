@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>QR Cam</title>
+<style>
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:#1a1030;color:#eee;font-family:Roboto,Arial,sans-serif;}
+  header{display:flex;align-items:center;gap:8px;padding:10px 12px;background:#2b1b4a;}
+  header b{font-size:16px;flex:1;}
+  button{padding:9px 14px;border-radius:18px;border:none;background:linear-gradient(135deg,#8b2dff,#c026ff);color:#fff;font-size:14px;font-weight:600;}
+  button.sec{background:#3b2b66;}
+  #slotList{padding:12px;display:flex;flex-direction:column;gap:10px;}
+  .row{display:flex;align-items:center;gap:8px;background:#261847;border-radius:12px;padding:10px;}
+  .dot{width:10px;height:10px;border-radius:50%;background:#666;flex:none;}
+  .row.connected .dot{background:#e0b030;}
+  .row.streaming .dot{background:#3ddc84;}
+  .row.lost .dot{background:#ff5a5a;}
+  .codeWrap{display:flex;align-items:center;gap:6px;flex:1;min-width:0;}
+  .codeWrap input{flex:1;min-width:0;padding:9px;border-radius:8px;border:1px solid #5a4a8a;background:#150d2b;color:#fff;font-size:16px;letter-spacing:3px;text-align:center;}
+  .codeLabel{flex:1;text-align:center;font-size:18px;font-weight:700;letter-spacing:4px;color:#e0c0ff;}
+  .status{font-size:12px;color:#bbb;width:96px;text-align:right;flex:none;}
+  .hint{padding:0 14px 14px;font-size:12px;color:#aaa;line-height:1.5;}
+  #live{position:fixed;inset:0;background:#000;display:none;flex-direction:column;z-index:10;}
+  #live.show{display:flex;}
+  #liveBar{display:flex;gap:6px;align-items:center;padding:8px;background:#111;}
+  #liveBar .sp{flex:1;}
+  #liveBar button.on{background:#c026ff;}
+  #grid{flex:1;display:grid;gap:3px;min-height:0;}
+  #grid.l1{grid-template-columns:1fr;grid-template-rows:1fr;}
+  #grid.l2{grid-template-columns:1fr;grid-template-rows:1fr 1fr;}
+  #grid.l4{grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;}
+  .tile{position:relative;background:#0b0b0b;display:none;min-height:0;min-width:0;overflow:hidden;}
+  .tile.visible{display:block;}
+  .tile video{width:100%;height:100%;object-fit:contain;background:#000;}
+  .tile .badge{position:absolute;left:6px;top:6px;padding:3px 8px;border-radius:10px;background:rgba(0,0,0,.6);font-size:12px;}
+  .tile .lost{position:absolute;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);font-size:14px;color:#ffb3b3;text-align:center;}
+  .tile.signal-lost .lost{display:flex;}
+  .tile .tools{position:absolute;right:6px;top:6px;display:flex;gap:6px;}
+  .tools button{padding:6px 10px;font-size:15px;background:rgba(0,0,0,.6);}
+  .tools button.recording{background:#d00;animation:blink 1s infinite;}
+  @keyframes blink{50%{opacity:.5;}}
+  .pop{position:absolute;right:6px;top:44px;background:#261847;border-radius:12px;padding:12px;display:none;flex-direction:column;gap:8px;z-index:5;font-size:13px;}
+  .pop.show{display:flex;}
+  .pop input{padding:6px;border-radius:6px;border:1px solid #5a4a8a;background:#150d2b;color:#fff;}
+  #toast{position:fixed;left:12px;right:12px;bottom:18px;padding:10px 14px;border-radius:12px;background:rgba(40,25,80,.95);font-size:13px;display:none;z-index:20;text-align:center;}
+  #toast.show{display:block;}
+</style>
+</head>
+<body>
+<header>
+  <b>📷 QR Cam</b>
+  <button id="liveBtn">Xem trực tiếp</button>
+  <button id="closeBtn" class="sec">✕</button>
+</header>
+<div id="slotList"></div>
+<div class="hint">
+  Mở app QrtuxaCam trên điện thoại cần xem, lấy mã 6 số rồi nhập vào một ô ở trên (tối đa 4 điện thoại).
+  Mã được nhớ lại cho lần sau. Video quay được lưu trong thư mục của app (xem thông báo khi quay xong).
+  Hãy để app mở và màn hình sáng khi cần quay theo lịch.
+</div>
+
+<div id="live">
+  <div id="liveBar">
+    <button class="lay sec" data-n="1">1</button>
+    <button class="lay sec" data-n="2">2</button>
+    <button class="lay sec" data-n="4">4</button>
+    <span class="sp"></span>
+    <button id="liveClose" class="sec">Đóng</button>
+  </div>
+  <div id="grid" class="l1"></div>
+</div>
+<div id="toast"></div>
+
+<script src="vendor/firebase-compat.js"></script>
+<script>
+(function () {
+  var FIREBASE_CONFIG = {
+    apiKey: "AIzaSyCPwMKElbsQLjOeSVddGAfjNiHnPHV9b1A",
+    authDomain: "qrremod.firebaseapp.com",
+    databaseURL: "https://qrremod-default-rtdb.asia-southeast1.firebasedatabase.app",
+    projectId: "qrremod",
+    storageBucket: "qrremod.firebasestorage.app",
+    messagingSenderId: "949360436062",
+    appId: "1:949360436062:web:c9b5b5d47ee4f76fdce5cf"
+  };
+  var MAX_CAM_SLOTS = 4;
+  var CAM_SIGNAL_LOST_MS = 8000;
+  var CAM_HEARTBEAT_TIMEOUT_MS = 15000;
+  var CAM_ICE_SERVERS = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'turn:openrelay.metered.ca:80', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443', username: 'openrelayproject', credential: 'openrelayproject' },
+    { urls: 'turn:openrelay.metered.ca:443?transport=tcp', username: 'openrelayproject', credential: 'openrelayproject' }
+  ];
+
+  var A = window.AndroidCam || {};
+  function loadJson(k, d) { try { var v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } }
+  function saveJson(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} }
+  var DEF_REC = function () { return { startTime: null, stopTime: null }; };
+
+  var db = null;
+  try { firebase.initializeApp(FIREBASE_CONFIG); db = firebase.database(); } catch (e) { console.error(e); }
+
+  function makeCamSlot(i) {
+    return {
+      index: i, roomCode: null, viewerId: null, pc: null, fbViewerRef: null, fbGenRef: null,
+      fbHostGenListener: null, fbIceListener: null, fbOfferListener: null, generation: -1,
+      stream: null, connected: false, signalLost: false, reconnecting: false, lastConnectedAt: 0,
+      signalLostTimer: null, reconnectTimer: null, disconnectGraceTimer: null, permissionError: false,
+      recording: false, mediaRecorder: null, startTimer: null, stopTimer: null,
+      _restartAfterFlush: false, _resumeRecordingOnReconnect: false, dataChannel: null, lastPingAt: 0
+    };
+  }
+  var camSlots = []; for (var q = 0; q < MAX_CAM_SLOTS; q++) camSlots.push(makeCamSlot(q));
+  var camLiveOpen = false;
+
+  // ---------- Giao dien ----------
+  var slotListEl = document.getElementById('slotList');
+  var liveEl = document.getElementById('live');
+  var gridEl = document.getElementById('grid');
+  var tiles = [];
+
+  function buildTiles() {
+    for (var i = 0; i < MAX_CAM_SLOTS; i++) (function (i) {
+      var t = document.createElement('div'); t.className = 'tile';
+      t.innerHTML = '<video autoplay playsinline></video><div class="badge">ĐT ' + (i + 1) + '</div>' +
+        '<div class="lost">⏳ Đang chờ kết nối lại...</div>' +
+        '<div class="tools"><button class="rec" title="Quay video">⏺</button><button class="cfg" title="Đặt lịch quay">⚙</button></div>' +
+        '<div class="pop"><label>Giờ bắt đầu <input type="time" class="st"></label><label>Giờ kết thúc <input type="time" class="sp"></label>' +
+        '<div style="display:flex;gap:6px"><button class="save">Lưu lịch</button><button class="clear sec">Tắt lịch</button></div></div>';
+      gridEl.appendChild(t); tiles.push(t);
+      var pop = t.querySelector('.pop');
+      t.querySelector('.rec').onclick = function () { if (camSlots[i].recording) stopRecording(i, false); else startRecording(i, false); };
+      t.querySelector('.cfg').onclick = function () {
+        var s = getRecordSettings(i);
+        t.querySelector('.st').value = s.startTime || ''; t.querySelector('.sp').value = s.stopTime || '';
+        pop.classList.toggle('show');
+      };
+      t.querySelector('.save').onclick = function () {
+        var a = t.querySelector('.st').value || null, b = t.querySelector('.sp').value || null;
+        if ((a && !b) || (!a && b)) { toast('Cần đặt đủ cả giờ bắt đầu và giờ kết thúc'); return; }
+        saveRecordSettings(i, { startTime: a, stopTime: b });
+        pop.classList.remove('show');
+        _scheduleRecordingWindow(i);
+        if (a && b) { _startRecordingIfWithinScheduledWindow(i); toast('Đã đặt lịch quay ĐT ' + (i + 1) + ': ' + a + ' → ' + b + ' mỗi ngày'); }
+        else toast('Đã tắt lịch quay ĐT ' + (i + 1));
+      };
+      t.querySelector('.clear').onclick = function () {
+        saveRecordSettings(i, { startTime: null, stopTime: null });
+        clearTimeout(camSlots[i].startTimer); clearTimeout(camSlots[i].stopTimer);
+        pop.classList.remove('show'); toast('Đã tắt lịch quay ĐT ' + (i + 1));
+      };
+    })(i);
+  }
+  buildTiles();
+
+  var toastTimer = null;
+  function toast(msg) {
+    var el = document.getElementById('toast'); el.textContent = msg; el.classList.add('show');
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { el.classList.remove('show'); }, 6000);
+  }
+
+  function updateKeepAwake() {
+    var on = camSlots.some(function (s) { return s.connected || s.recording; });
+    try { if (A.keepAwake) A.keepAwake(on); } catch (e) {}
+  }
+
+  function renderCamSlotList() {
+    slotListEl.innerHTML = '';
+    camSlots.forEach(function (slot, i) {
+      var row = document.createElement('div');
+      row.className = 'row' + (slot.connected ? ' connected' : '') +
+        (slot.connected && !slot.signalLost && !slot.reconnecting ? ' streaming' : '') +
+        ((slot.signalLost || slot.reconnecting) ? ' lost' : '');
+      var dot = document.createElement('span'); dot.className = 'dot';
+      var wrap = document.createElement('div'); wrap.className = 'codeWrap';
+      if (!slot.roomCode) {
+        var input = document.createElement('input');
+        input.placeholder = 'Mã 6 số'; input.maxLength = 6; input.inputMode = 'numeric';
+        input.addEventListener('keydown', function (e) { if (e.key === 'Enter') connectSlot(i, input.value.trim()); });
+        wrap.appendChild(input);
+        var btn = document.createElement('button'); btn.textContent = 'Kết nối';
+        btn.onclick = function () { connectSlot(i, input.value.trim()); };
+        wrap.appendChild(btn);
+      } else {
+        var lbl = document.createElement('span'); lbl.className = 'codeLabel'; lbl.textContent = slot.roomCode;
+        wrap.appendChild(lbl);
+        var x = document.createElement('button'); x.className = 'sec'; x.textContent = '✕';
+        x.onclick = function () { disconnectSlot(i); };
+        wrap.appendChild(x);
+      }
+      var st = document.createElement('span'); st.className = 'status';
+      st.textContent = slot.permissionError ? 'Lỗi quyền Firebase' :
+        (slot.signalLost || slot.reconnecting) ? '⏳ Chờ kết nối lại...' :
+        slot.connected ? 'Đang xem' : slot.roomCode ? 'Đang kết nối...' : ('ĐT ' + (i + 1));
+      row.appendChild(dot); row.appendChild(wrap); row.appendChild(st);
+      slotListEl.appendChild(row);
+    });
+  }
+  renderCamSlotList();
+
+  // ---------- Ket noi ----------
+  function connectSlot(i, code) {
+    if (!code || code.length < 4) { toast('Nhập mã 6 số của điện thoại'); return; }
+    if (!db) { toast('Firebase chưa sẵn sàng'); return; }
+    disconnectSlot(i, true, true);
+    var slot = camSlots[i];
+    slot.roomCode = code;
+    slot.viewerId = 'pc_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    slot.permissionError = false;
+    renderCamSlotList();
+    var codes = loadJson('cam-room-codes', ['', '', '', '']).slice();
+    codes[i] = code; saveJson('cam-room-codes', codes);
+    _doConnect(i);
+  }
+
+  function _doConnect(i) {
+    var slot = camSlots[i];
+    if (!slot.roomCode) return;
+    if (slot.pc) {
+      slot.pc.onconnectionstatechange = null; slot.pc.onicecandidate = null; slot.pc.ontrack = null;
+      try { slot.pc.close(); } catch (e) {}
+      slot.pc = null;
+    }
+    if (slot.fbOfferListener && slot.fbGenRef) { slot.fbGenRef.child('offer').off('value', slot.fbOfferListener); slot.fbOfferListener = null; }
+    if (slot.fbIceListener && slot.fbGenRef) { slot.fbGenRef.child('iceCandidatesHost').off('value', slot.fbIceListener); slot.fbIceListener = null; }
+    slot.generation = -1;
+    if (slot.fbHostGenListener && slot.fbViewerRef) slot.fbViewerRef.child('hostGeneration').off('value', slot.fbHostGenListener);
+    slot.reconnecting = !!(slot.signalLost || slot.reconnecting);
+    slot.signalLost = false;
+    renderCamSlotList();
+
+    var pc = new RTCPeerConnection({ iceServers: CAM_ICE_SERVERS });
+    slot.pc = pc;
+
+    pc.ondatachannel = function (event) {
+      if (slot.pc !== pc) return;
+      var ch = event.channel; ch.binaryType = 'arraybuffer'; slot.dataChannel = ch;
+      ch.onmessage = function (e) {
+        if (slot.dataChannel !== ch || typeof e.data !== 'string') return;
+        var msg; try { msg = JSON.parse(e.data); } catch (err) { return; }
+        if (msg.type === 'ping') slot.lastPingAt = Date.now();
+        else if (msg.type === 'text-edit' && A.textEdit) { try { A.textEdit(msg.del | 0, typeof msg.ins === 'string' ? msg.ins : ''); } catch (er) {} }
+      };
+    };
+
+    pc.ontrack = function (e) {
+      if (slot.pc !== pc) return;
+      if (e.streams && e.streams[0]) slot.stream = e.streams[0];
+      else { var ms = new MediaStream(); ms.addTrack(e.track); slot.stream = ms; }
+      var video = tiles[i].querySelector('video');
+      if (video.srcObject !== slot.stream) { video.srcObject = slot.stream; video.play().catch(function () {}); }
+    };
+
+    pc.addTransceiver('video', { direction: 'recvonly' });
+
+    pc.onicecandidate = function (e) {
+      if (slot.pc !== pc) return;
+      if (!e.candidate || !slot.fbGenRef) return;
+      slot.fbGenRef.child('iceCandidatesCtrl').push({
+        sdpMid: e.candidate.sdpMid, sdpMLineIndex: e.candidate.sdpMLineIndex, candidate: e.candidate.candidate
+      });
+    };
+
+    pc.onconnectionstatechange = function () {
+      if (slot.pc !== pc) return;
+      var s = pc.connectionState;
+      if (s === 'connected') {
+        clearTimeout(slot.disconnectGraceTimer);
+        slot.reconnecting = false; slot.connected = true; slot.signalLost = false;
+        slot.lastConnectedAt = Date.now(); slot.lastPingAt = Date.now();
+        clearTimeout(slot.signalLostTimer);
+        renderCamSlotList(); updateTile(i); updateKeepAwake();
+        _startSignalLostCheck(i);
+        _scheduleRecordingWindow(i);
+        _startRecordingIfWithinScheduledWindow(i);
+        if (slot._resumeRecordingOnReconnect) { slot._resumeRecordingOnReconnect = false; startRecording(i, true); }
+      } else if (s === 'failed') {
+        clearTimeout(slot.disconnectGraceTimer);
+        _onSlotLostSignal(i);
+      } else if (s === 'disconnected') {
+        clearTimeout(slot.disconnectGraceTimer);
+        slot.reconnecting = true;
+        renderCamSlotList(); updateTile(i);
+        slot.disconnectGraceTimer = setTimeout(function () {
+          if (slot.pc !== pc) return;
+          if (pc.connectionState !== 'connected') _onSlotLostSignal(i);
+        }, 8000);
+      }
+    };
+
+    var fbRoot = firebase.database().ref('rooms').child(slot.roomCode).child('viewers').child(slot.viewerId);
+    slot.fbViewerRef = fbRoot;
+    fbRoot.child('present').set(true);
+    fbRoot.child('present').onDisconnect().remove();
+
+    slot.fbHostGenListener = fbRoot.child('hostGeneration').on('value', function (snap) {
+      var gen = snap.val();
+      if (!gen || gen === slot.generation) return;
+      if (slot.generation !== -1 && slot.pc && slot.pc.remoteDescription) { _doConnect(i); return; }
+      slot.generation = gen;
+      _resubscribeGen(i, gen);
+    }, function (err) {
+      console.error('QRCam hostGeneration permission error', err);
+      slot.permissionError = true; renderCamSlotList();
+      toast('⚠️ Firebase từ chối quyền đọc/ghi (kiểm tra Database Rules)');
+    });
+  }
+
+  function _resubscribeGen(i, gen) {
+    var slot = camSlots[i];
+    if (slot.fbOfferListener && slot.fbGenRef) slot.fbGenRef.child('offer').off('value', slot.fbOfferListener);
+    if (slot.fbIceListener && slot.fbGenRef) slot.fbGenRef.child('iceCandidatesHost').off('value', slot.fbIceListener);
+    slot.fbGenRef = slot.fbViewerRef.child('gen').child(String(gen));
+
+    slot.fbOfferListener = slot.fbGenRef.child('offer').on('value', async function (snap) {
+      var val = snap.val();
+      if (!val || !val.sdp) return;
+      try {
+        await slot.pc.setRemoteDescription({ type: 'offer', sdp: val.sdp });
+        var answer = await slot.pc.createAnswer();
+        await slot.pc.setLocalDescription(answer);
+        slot.fbGenRef.child('answer').set({ type: 'answer', sdp: answer.sdp });
+      } catch (e) { console.error('QRCam offer error', e); }
+    }, function (err) { slot.permissionError = true; renderCamSlotList(); });
+
+    slot.fbIceListener = slot.fbGenRef.child('iceCandidatesHost').on('value', function (snap) {
+      snap.forEach(function (child) {
+        var c = child.val(); if (!c) return;
+        slot.pc.addIceCandidate({ sdpMid: c.sdpMid, sdpMLineIndex: c.sdpMLineIndex, candidate: c.candidate }).catch(function () {});
+      });
+    }, function (err) { slot.permissionError = true; renderCamSlotList(); });
+  }
+
+  function _onSlotLostSignal(i) {
+    var slot = camSlots[i];
+    if (!slot.roomCode) return;
+    if (slot.recording) { slot._resumeRecordingOnReconnect = true; stopRecording(i, false); }
+    slot.connected = false; slot.signalLost = true;
+    renderCamSlotList(); updateTile(i); updateKeepAwake();
+    clearTimeout(slot.reconnectTimer);
+    slot.reconnectTimer = setTimeout(function () {
+      if (!slot.roomCode) return;
+      _doConnect(i);
+      setTimeout(function () {
+        if (slot.roomCode && !slot.connected && !(slot.pc && slot.pc.connectionState === 'connecting')) _onSlotLostSignal(i);
+      }, 20000);
+    }, 4000);
+  }
+
+  function _startSignalLostCheck(i) {
+    var slot = camSlots[i];
+    clearTimeout(slot.signalLostTimer);
+    slot.signalLostTimer = setTimeout(function () {
+      if (!slot.connected) return;
+      var lost = false;
+      if (slot.stream) {
+        var tracks = slot.stream.getVideoTracks();
+        lost = !tracks.length || tracks[0].readyState === 'ended';
+      } else if (slot.dataChannel) {
+        if (slot.dataChannel.readyState === 'closed' || slot.dataChannel.readyState === 'closing') lost = true;
+        else if (slot.lastPingAt && Date.now() - slot.lastPingAt > CAM_HEARTBEAT_TIMEOUT_MS) lost = true;
+      }
+      if (lost) { _onSlotLostSignal(i); return; }
+      _startSignalLostCheck(i);
+    }, CAM_SIGNAL_LOST_MS);
+  }
+
+  function disconnectSlot(i, silent, keepSavedCode) {
+    var slot = camSlots[i];
+    clearTimeout(slot.reconnectTimer); clearTimeout(slot.disconnectGraceTimer);
+    clearTimeout(slot.signalLostTimer); clearTimeout(slot.startTimer); clearTimeout(slot.stopTimer);
+    slot.reconnecting = false;
+    if (slot.recording) stopRecording(i, false);
+    slot.dataChannel = null;
+    if (slot.fbOfferListener && slot.fbGenRef) slot.fbGenRef.child('offer').off('value', slot.fbOfferListener);
+    if (slot.fbIceListener && slot.fbGenRef) slot.fbGenRef.child('iceCandidatesHost').off('value', slot.fbIceListener);
+    if (slot.fbHostGenListener && slot.fbViewerRef) slot.fbViewerRef.child('hostGeneration').off('value', slot.fbHostGenListener);
+    if (slot.fbViewerRef) { slot.fbViewerRef.child('present').onDisconnect().cancel(); slot.fbViewerRef.remove().catch(function () {}); }
+    if (slot.pc) { try { slot.pc.close(); } catch (e) {} }
+    var video = tiles[i].querySelector('video'); video.srcObject = null; video.removeAttribute('src');
+    var fresh = makeCamSlot(i);
+    Object.keys(fresh).forEach(function (k) { slot[k] = fresh[k]; });
+    if (!keepSavedCode) {
+      var codes = loadJson('cam-room-codes', ['', '', '', '']).slice(); codes[i] = ''; saveJson('cam-room-codes', codes);
+    }
+    renderCamSlotList(); updateTile(i); updateKeepAwake();
+    if (!silent) toast('ĐT ' + (i + 1) + ' đã ngắt kết nối');
+  }
+
+  function updateTile(i) {
+    var slot = camSlots[i], tile = tiles[i];
+    tile.classList.toggle('signal-lost', !!(slot.signalLost || slot.reconnecting));
+    var video = tile.querySelector('video');
+    if (slot.stream && video.srcObject !== slot.stream) { video.srcObject = slot.stream; video.play().catch(function () {}); }
+  }
+
+  // ---------- Xem truc tiep ----------
+  function applyLayout(n) {
+    gridEl.className = 'l' + n;
+    document.querySelectorAll('.lay').forEach(function (b) { b.classList.toggle('on', Number(b.dataset.n) === n); });
+    tiles.forEach(function (t, i) { t.classList.toggle('visible', i < n); });
+  }
+  document.querySelectorAll('.lay').forEach(function (b) { b.onclick = function () { applyLayout(Number(b.dataset.n)); }; });
+  document.getElementById('liveBtn').onclick = function () {
+    camLiveOpen = true; liveEl.classList.add('show');
+    var connected = camSlots.filter(function (s) { return s.connected; }).length;
+    applyLayout(connected >= 3 ? 4 : Math.max(1, connected));
+    camSlots.forEach(function (s, i) { var v = tiles[i].querySelector('video'); if (s.stream) { v.srcObject = s.stream; v.play().catch(function () {}); } });
+  };
+  document.getElementById('liveClose').onclick = function () { camLiveOpen = false; liveEl.classList.remove('show'); };
+  document.getElementById('closeBtn').onclick = function () { if (A.close) A.close(); };
+
+  // ---------- Quay video ----------
+  function getRecordSettings(i) { var all = loadJson('cam-record-settings', []); return (all && all[i]) || DEF_REC(); }
+  function saveRecordSettings(i, patch) {
+    var all = loadJson('cam-record-settings', []).slice();
+    while (all.length < MAX_CAM_SLOTS) all.push(DEF_REC());
+    all[i] = Object.assign({}, all[i], patch); saveJson('cam-record-settings', all);
+  }
+  function _pad2(n) { return String(n).padStart(2, '0'); }
+  function _recordingFilename(i) {
+    var d = new Date(), names = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
+    return 'qrcam_dt' + (i + 1) + '_' + names[d.getDay()] + '_' + _pad2(d.getDate()) + '-' + _pad2(d.getMonth() + 1) + '-' + d.getFullYear() +
+      '_' + _pad2(d.getHours()) + 'h' + _pad2(d.getMinutes()) + '.webm';
+  }
+  function _arrayBufferToBase64(buf) {
+    var binary = '', bytes = new Uint8Array(buf), chunk = 0x8000;
+    for (var k = 0; k < bytes.length; k += chunk) binary += String.fromCharCode.apply(null, bytes.subarray(k, k + chunk));
+    return btoa(binary);
+  }
+  function _updateRecBtn(i) {
+    var b = tiles[i].querySelector('.rec'); b.classList.toggle('recording', !!camSlots[i].recording);
+  }
+
+  async function startRecording(i, fromSchedule) {
+    var slot = camSlots[i];
+    if (slot.recording) return;
+    if (!slot.stream) { if (!fromSchedule) toast('ĐT ' + (i + 1) + ' chưa có hình để quay'); return; }
+    if (!A.startFile) { toast('Không thể lưu file trên thiết bị này'); return; }
+    var filename = _recordingFilename(i);
+    var recordingId = A.startFile(filename);
+    if (!recordingId) { if (!fromSchedule) toast('⚠️ Không thể tạo file lưu video ĐT ' + (i + 1)); return; }
+    try {
+      var mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp8,opus') ? 'video/webm;codecs=vp8,opus' : 'video/webm';
+      var mr = new MediaRecorder(slot.stream, { mimeType: mime });
+      var writeChain = Promise.resolve();
+      mr.ondataavailable = function (e) {
+        if (!e.data || !e.data.size) return;
+        writeChain = writeChain.then(async function () {
+          try { var buf = await e.data.arrayBuffer(); A.appendChunk(recordingId, _arrayBufferToBase64(buf)); }
+          catch (err) { console.error('Lỗi ghi đoạn video', err); }
+        });
+      };
+      mr.onstop = async function () {
+        await writeChain;
+        var ok = A.finishFile(recordingId);
+        toast(ok ? ('💾 Đã lưu video ĐT ' + (i + 1) + ': ' + filename + ' (thư mục ' + A.folder() + ')') : ('⚠️ Lưu video ĐT ' + (i + 1) + ' thất bại'));
+        if (slot._restartAfterFlush) { slot._restartAfterFlush = false; startRecording(i, true); }
+        updateKeepAwake();
+      };
+      mr.start(1000);
+      slot.mediaRecorder = mr; slot.recording = true;
+      _updateRecBtn(i); updateKeepAwake();
+      toast('⏺ Đang quay video ĐT ' + (i + 1));
+    } catch (e) {
+      console.error(e);
+      if (!fromSchedule) toast('⚠️ Không thể bắt đầu quay video ĐT ' + (i + 1));
+      try { A.finishFile(recordingId); } catch (er) {}
+    }
+  }
+
+  function stopRecording(i, restart) {
+    var slot = camSlots[i];
+    if (!slot.recording || !slot.mediaRecorder) return;
+    slot.recording = false; slot._restartAfterFlush = !!restart;
+    try { slot.mediaRecorder.stop(); } catch (e) {}
+    slot.mediaRecorder = null;
+    _updateRecBtn(i);
+  }
+
+  function _nextOccurrence(hhmm, now) {
+    var p = hhmm.split(':').map(Number);
+    var next = new Date(now.getFullYear(), now.getMonth(), now.getDate(), p[0], p[1], 0, 0);
+    if (next <= now) next.setDate(next.getDate() + 1);
+    return next;
+  }
+  function _scheduleNextStart(i) {
+    var slot = camSlots[i]; clearTimeout(slot.startTimer);
+    var s = getRecordSettings(i); if (!s.startTime || !s.stopTime) return;
+    var now = new Date(), next = _nextOccurrence(s.startTime, now);
+    slot.startTimer = setTimeout(function () { startRecording(i, true); _scheduleNextStart(i); }, next.getTime() - now.getTime());
+  }
+  function _scheduleNextStop(i) {
+    var slot = camSlots[i]; clearTimeout(slot.stopTimer);
+    var s = getRecordSettings(i); if (!s.startTime || !s.stopTime) return;
+    var now = new Date(), next = _nextOccurrence(s.stopTime, now);
+    slot.stopTimer = setTimeout(function () { if (slot.recording) stopRecording(i, false); _scheduleNextStop(i); }, next.getTime() - now.getTime());
+  }
+  function _scheduleRecordingWindow(i) { _scheduleNextStart(i); _scheduleNextStop(i); }
+  function _startRecordingIfWithinScheduledWindow(i) {
+    var s = getRecordSettings(i); if (!s.startTime || !s.stopTime) return;
+    var now = new Date();
+    var todayStart = _nextOccurrence(s.startTime, new Date(now.getTime() - 24 * 60 * 60 * 1000));
+    var todayStop = _nextOccurrence(s.stopTime, todayStart);
+    if (todayStop <= todayStart) todayStop = new Date(todayStop.getTime() + 24 * 60 * 60 * 1000);
+    if (now >= todayStart && now < todayStop) startRecording(i, true);
+  }
+
+  // Tu ket noi lai cac ma da luu khi trang duoc mo
+  var saved = loadJson('cam-room-codes', ['', '', '', '']);
+  saved.forEach(function (code, i) { code = (code || '').trim(); if (code && i < MAX_CAM_SLOTS) connectSlot(i, code); });
+})();
+</script>
+</body>
+</html>
