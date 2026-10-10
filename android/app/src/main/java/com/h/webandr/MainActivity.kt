@@ -287,8 +287,9 @@ class MainActivity : Activity() {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             layoutParams = LinearLayout.LayoutParams(dp(52), dp(44))
         })
-        bar.addView(iconBtn("✕") { finishAndRemoveTask() }.apply {
-            setBackgroundColor(0xFFD32F2F.toInt())
+        bar.addView(iconBtn("⌂") { goHome() }.apply {
+            textSize = 26f
+            contentDescription = "Màn hình chính"
             (layoutParams as LinearLayout.LayoutParams).leftMargin = dp(4)
         })
         col.addView(bar, LinearLayout.LayoutParams(MATCH, WRAP))
@@ -391,6 +392,18 @@ class MainActivity : Activity() {
         super.onConfigurationChanged(newConfig)
         lastConfigChangeAt = System.currentTimeMillis()
         applySplitLayout()
+    }
+
+    // Ve man hinh chinh Android; app van chay nen, mo lai se giu nguyen cac tab.
+    private fun goHome() {
+        try {
+            startActivity(Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK
+            })
+        } catch (e: Exception) {
+            moveTaskToBack(true)
+        }
     }
 
     private fun hideKeyboard() {
