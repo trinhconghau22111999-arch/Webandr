@@ -1800,6 +1800,8 @@ class MainActivity : Activity() {
         val t = splitTabs.getOrPut(service) {
             val wv = createConfiguredWebView()
             val nt = Tab(wv, TextView(this))
+            // Zalo Web chi mo giao dien chat tren may tinh; UA di dong bi day sang trang tai app.
+            if (service == "Zalo") { wv.settings.userAgentString = desktopUa; nt.desktop = true }
             setupClients(nt)
             wv.visibility = View.GONE
             splitPaneHolder.addView(wv, FrameLayout.LayoutParams(MATCH, MATCH))
