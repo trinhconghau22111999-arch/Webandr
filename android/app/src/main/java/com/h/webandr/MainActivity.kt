@@ -72,6 +72,7 @@ private const val HOME = "https://www.google.com"
 private const val REQ_MEDIA = 101
 private const val REQ_STORAGE = 102
 private const val REQ_FILE = 103
+private const val REQ_ACCOUNT = 104
 
 private const val COLOR_BAR = 0xFF2B1B4A.toInt()
 private const val COLOR_TAB_BG = 0xFFE9E3F5.toInt()
@@ -723,7 +724,31 @@ class MainActivity : Activity() {
     }
 
     @Deprecated("Deprecated in Java")
+    // Hien hop chon tai khoan Google cua he thong (khong can cap quyen), roi mo trang dang nhap
+    // voi san email do. Mat khau/xac minh van do Google yeu cau trong trang.
+    private fun pickGoogleAccount() {
+        try {
+            @Suppress("DEPRECATION")
+            val i = android.accounts.AccountManager.newChooseAccountIntent(
+                null, null, arrayOf("com.google"), null, null, null, null
+            )
+            startActivityForResult(i, REQ_ACCOUNT)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Không mở được danh sách tài khoản: " + e.message, Toast.LENGTH_LONG).show()
+        }
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        if (requestCode == REQ_ACCOUNT) {
+            val email = data?.getStringExtra(android.accounts.AccountManager.KEY_ACCOUNT_NAME)
+            if (resultCode == RESULT_OK && !email.isNullOrEmpty()) {
+                val e = Uri.encode(email)
+                val url = "https://accounts.google.com/ServiceLogin?Email=" + e + "&login_hint=" + e +
+                        "&continue=" + Uri.encode("https://www.google.com/")
+                active?.webView?.let { go(it, url) }
+            }
+            return
+        }
         if (requestCode == REQ_FILE) {
             fileCallback?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data))
             fileCallback = null
@@ -784,6 +809,7 @@ class MainActivity : Activity() {
             isChecked = oneTapOn
         }
         m.add(0, 15, 0, "Đặt lại zoom trang này")
+        m.add(0, 16, 0, "Chọn tài khoản Google trên máy")
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 3 -> showList("Dấu trang", "bookmarks", false)
@@ -796,6 +822,7 @@ class MainActivity : Activity() {
                 13 -> toggleAdSkip()
                 14 -> toggleOneTap()
                 15 -> resetZoom()
+                16 -> pickGoogleAccount()
             }
             true
         }
