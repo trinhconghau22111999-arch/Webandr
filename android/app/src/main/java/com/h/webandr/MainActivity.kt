@@ -14,6 +14,7 @@ import android.content.SharedPreferences
 import android.content.res.Configuration
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
 import android.net.Uri
 import android.os.Build
@@ -100,6 +101,7 @@ class MainActivity : Activity() {
     private lateinit var content: FrameLayout
     private lateinit var tabBar: LinearLayout
     private lateinit var urlBar: EditText
+    private lateinit var bookmarkBtn: TextView
     private lateinit var progress: ProgressBar
     private lateinit var qrOverlay: FrameLayout
     private var qrWeb: WebView? = null
@@ -253,6 +255,10 @@ class MainActivity : Activity() {
         }
         bar.addView(urlBar, LinearLayout.LayoutParams(0, dp(40), 1f))
         bar.addView(iconBtn("✕") { finishAndRemoveTask() })
+        bar.addView(iconBtn("📷") { takeScreenshot() })
+        bookmarkBtn = iconBtn("☆") { toggleBookmark() }
+        bar.addView(bookmarkBtn)
+        bar.addView(iconBtn("⬇") { openDownloads() })
         col.addView(bar, LinearLayout.LayoutParams(MATCH, WRAP))
 
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
@@ -448,6 +454,7 @@ class MainActivity : Activity() {
         }
         urlBar.setText(tab.url)
         progress.visibility = View.GONE
+        updateBookmarkBtn()
     }
 
     private fun closeTab(tab: Tab) {
@@ -527,6 +534,7 @@ class MainActivity : Activity() {
                 if (tab === active) {
                     urlBar.setText(tab.url)
                     progress.visibility = View.GONE
+                    updateBookmarkBtn()
                 }
                 tab.loadedAt = System.currentTimeMillis()
                 if (!docStartScriptSupported && url != null && url.startsWith("http")) {
@@ -673,7 +681,6 @@ class MainActivity : Activity() {
         val tab = active
         val popup = PopupMenu(this, anchor)
         val m = popup.menu
-        val bookmarked = tab != null && readList("bookmarks").any { it[1] == tab.url }
         m.add(0, 6, 0, "Chế độ máy tính").apply {
             isCheckable = true
             isChecked = tab?.desktop == true
@@ -681,7 +688,6 @@ class MainActivity : Activity() {
         m.add(0, 4, 0, "Lịch sử")
         m.add(0, 7, 0, "Xoá lịch sử")
         m.add(0, 3, 0, "Dấu trang")
-        m.add(0, 2, 0, if (bookmarked) "★ Bỏ dấu trang" else "☆ Thêm dấu trang")
         m.add(0, 5, 0, "QR Remote Input")
         m.add(0, 9, 0, "QR Cam (xem webcam điện thoại)")
         m.add(0, 11, 0, "Chặn web đen / lừa đảo")
@@ -697,7 +703,6 @@ class MainActivity : Activity() {
         m.add(0, 15, 0, "Đặt lại zoom trang này")
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
-                2 -> toggleBookmark()
                 3 -> showList("Dấu trang", "bookmarks", false)
                 4 -> showList("Lịch sử", "history", true)
                 5 -> toggleQr()
@@ -770,6 +775,49 @@ class MainActivity : Activity() {
             Toast.makeText(this, "Đã thêm dấu trang", Toast.LENGTH_SHORT).show()
         }
         writeList("bookmarks", list)
+        updateBookmarkBtn()
+    }
+
+    private fun updateBookmarkBtn() {
+        val u = active?.url ?: ""
+        val on = u.isNotEmpty() && readList("bookmarks").any { it[1] == u }
+        bookmarkBtn.text = if (on) "★" else "☆"
+        bookmarkBtn.setTextColor(if (on) 0xFFFFC107.toInt() else Color.WHITE)
+    }
+
+    private fun openDownloads() {
+        try {
+            startActivity(Intent(DownloadManager.ACTION_VIEW_DOWNLOADS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        } catch (e: Exception) {
+            Toast.makeText(this, "Không mở được danh sách tải xuống", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun takeScreenshot() {
+        val wv = active?.webView ?: return
+        if (wv.width <= 0 || wv.height <= 0) return
+        try {
+            val bmp = Bitmap.createBitmap(wv.width, wv.height, Bitmap.Config.ARGB_8888)
+            wv.draw(Canvas(bmp))
+            val name = "Webandr_" + System.currentTimeMillis() + ".png"
+            if (Build.VERSION.SDK_INT >= 29) {
+                val cv = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/Webandr")
+                }
+                val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv)
+                    ?: throw Exception("không tạo được tệp")
+                contentResolver.openOutputStream(uri)?.use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            } else {
+                val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), "Webandr")
+                dir.mkdirs()
+                FileOutputStream(File(dir, name)).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
+            Toast.makeText(this, "Đã lưu ảnh chụp: Pictures/Webandr/$name", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Không chụp được: " + e.message, Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun showList(title: String, key: String, clearable: Boolean) {
