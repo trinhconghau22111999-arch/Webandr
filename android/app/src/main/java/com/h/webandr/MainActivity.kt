@@ -496,6 +496,15 @@ class MainActivity : Activity() {
         }
     }
 
+    private val blockedAppSchemes = setOf(
+        "tg", "telegram", "zalo", "zaloapp", "zalopay", "fb", "fb-messenger", "fb-messenger-share",
+        "fbapi", "fbauth2", "fbconnect", "fb-lite"
+    )
+    private val blockedAppPackages = setOf(
+        "org.telegram.messenger", "org.telegram.messenger.web", "org.thunderdog.challegram",
+        "com.zing.zalo", "com.facebook.katana", "com.facebook.orca", "com.facebook.lite", "com.facebook.mlite"
+    )
+
     private fun isAdHost(host: String): Boolean =
         adHosts.any { host == it || host.endsWith(".$it") }
 
@@ -516,9 +525,17 @@ class MainActivity : Activity() {
                 // Nho zoom theo trang: ap muc zoom da luu cua trang dich truoc khi no tai.
                 if ((scheme == "http" || scheme == "https") && view != null) applyInitialScale(view, u.toString())
                 if (scheme in listOf("http", "https", "about", "data", "blob", "file", "javascript")) return false
+                // Telegram / Zalo / Facebook: luon o lai ban web, khong nhay sang app cai tren may.
+                if (scheme in blockedAppSchemes) return true
                 try {
                     val i = if (scheme == "intent") Intent.parseUri(u.toString(), Intent.URI_INTENT_SCHEME)
                     else Intent(Intent.ACTION_VIEW, u)
+                    if (scheme == "intent" && i.`package` in blockedAppPackages) {
+                        i.getStringExtra("browser_fallback_url")
+                            ?.takeIf { it.startsWith("http") }
+                            ?.let { fb -> view?.let { go(it, fb) } }
+                        return true
+                    }
                     i.addCategory(Intent.CATEGORY_BROWSABLE)
                     i.component = null
                     i.selector = null
