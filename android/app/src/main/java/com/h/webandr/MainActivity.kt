@@ -1013,7 +1013,7 @@ class MainActivity : Activity() {
         val list = readList("history")
         if (list.isNotEmpty() && list[0][1] == url) return
         list.add(0, arrayOf(title, url))
-        writeList("history", if (list.size > 300) list.subList(0, 300) else list)
+        writeList("history", if (list.size > 50) list.subList(0, 50) else list)
     }
 
     private fun toggleBookmark() {
