@@ -254,11 +254,14 @@ class MainActivity : Activity() {
             }
         }
         bar.addView(urlBar, LinearLayout.LayoutParams(0, dp(40), 1f))
-        bar.addView(iconBtn("✕") { finishAndRemoveTask() })
         bar.addView(iconBtn("📷") { takeScreenshot() })
         bookmarkBtn = iconBtn("☆") { toggleBookmark() }
         bar.addView(bookmarkBtn)
         bar.addView(iconBtn("⬇") { openDownloads() })
+        bar.addView(iconBtn("✕") { finishAndRemoveTask() }.apply {
+            setBackgroundColor(0xFFD32F2F.toInt())
+            (layoutParams as LinearLayout.LayoutParams).leftMargin = dp(4)
+        })
         col.addView(bar, LinearLayout.LayoutParams(MATCH, WRAP))
 
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
