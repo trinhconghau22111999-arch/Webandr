@@ -287,8 +287,8 @@ class MainActivity : Activity() {
             setTypeface(typeface, android.graphics.Typeface.BOLD)
             layoutParams = LinearLayout.LayoutParams(dp(52), dp(44))
         })
-        bar.addView(iconBtn("⌂") { goHome() }.apply {
-            textSize = 26f
+        bar.addView(iconBtn("✕") { goHome() }.apply {
+            setBackgroundColor(0xFFD32F2F.toInt())
             contentDescription = "Màn hình chính"
             (layoutParams as LinearLayout.LayoutParams).leftMargin = dp(4)
         })
