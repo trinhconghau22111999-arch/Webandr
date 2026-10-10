@@ -168,6 +168,9 @@ class MainActivity : Activity() {
         for (t in tabs) if (t.url.startsWith("http")) arr.put(t.url)
         prefs.edit().putString("tabs", arr.toString())
             .putInt("activeIdx", tabs.indexOf(active).coerceAtLeast(0)).apply()
+        val ed = prefs.edit()
+        for ((n, t) in splitTabs) if (t.url.startsWith("http")) ed.putString("split_$n", t.url)
+        ed.apply()
         CookieManager.getInstance().flush()
     }
 
@@ -175,7 +178,7 @@ class MainActivity : Activity() {
         for (t in tabs) t.webView.destroy()
         qrWeb?.destroy()
         camWeb?.destroy()
-        splitTab?.webView?.destroy()
+        for (t in splitTabs.values) t.webView.destroy()
         synchronized(recordings) {
             for (o in recordings.values) try { o.close() } catch (e: Exception) { }
             recordings.clear()
@@ -1325,7 +1328,7 @@ class MainActivity : Activity() {
         } catch (e: Exception) { null }
     }
 
-    private fun allWebViews(): List<WebView> = tabs.map { it.webView } + listOfNotNull(splitTab?.webView)
+    private fun allWebViews(): List<WebView> = tabs.map { it.webView } + splitTabs.values.map { it.webView }
 
     // Ap cai dat moi cho moi tab dang mo (trang hien tai nhan co ngay, trang sau nhan qua script).
     private fun applyPageFlags() {
@@ -1468,6 +1471,8 @@ class MainActivity : Activity() {
     )
     private var splitService: String? = null
     private var splitTab: Tab? = null
+    // Moi dich vu co WebView rieng, giu song khi an pane -> nho vi tri/trang, YouTube van phat tiep.
+    private val splitTabs = linkedMapOf<String, Tab>()
 
     // Doc man hinh: pane o tren (3/10). Ngang man hinh: pane ben trai (2/7), giong ban may tinh.
     private fun applySplitLayout() {
@@ -1522,17 +1527,18 @@ class MainActivity : Activity() {
 
     private fun enterSplit(service: String) {
         val url = splitUrls[service] ?: return
-        val existing = splitTab
-        if (existing == null) {
+        val t = splitTabs.getOrPut(service) {
             val wv = createConfiguredWebView()
-            val t = Tab(wv, TextView(this))
-            setupClients(t)
-            splitTab = t
+            val nt = Tab(wv, TextView(this))
+            setupClients(nt)
+            wv.visibility = View.GONE
             splitPaneHolder.addView(wv, FrameLayout.LayoutParams(MATCH, MATCH))
-            go(wv, url)
-        } else if (splitService != service) {
-            go(existing.webView, url)
+            val saved = prefs.getString("split_$service", null)
+            go(wv, if (!saved.isNullOrEmpty() && saved.startsWith("http")) saved else url)
+            nt
         }
+        for ((n, tb) in splitTabs) tb.webView.visibility = if (n == service) View.VISIBLE else View.GONE
+        splitTab = t
         splitService = service
         applySplitLayout()
     }
