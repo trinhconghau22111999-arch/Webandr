@@ -829,10 +829,36 @@ class MainActivity : Activity() {
             Toast.makeText(this, "$title: chưa có mục nào", Toast.LENGTH_SHORT).show()
             return
         }
-        val labels = list.map { if (it[0].isNotBlank()) it[0] + "\n" + it[1] else it[1] }.toTypedArray()
+        val adapter = object : android.widget.BaseAdapter() {
+            override fun getCount() = list.size
+            override fun getItem(position: Int) = list[position]
+            override fun getItemId(position: Int) = position.toLong()
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+                val e = list[position]
+                val row = LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(20), dp(10), dp(20), dp(10))
+                }
+                if (e[0].isNotBlank()) row.addView(TextView(this@MainActivity).apply {
+                    text = e[0]
+                    textSize = 15f
+                    setTextColor(Color.BLACK)
+                    setSingleLine(true)
+                    ellipsize = TextUtils.TruncateAt.END
+                })
+                row.addView(TextView(this@MainActivity).apply {
+                    text = e[1]
+                    textSize = 13f
+                    setTextColor(0xFF666666.toInt())
+                    setSingleLine(true)
+                    ellipsize = TextUtils.TruncateAt.END
+                })
+                return row
+            }
+        }
         val b = AlertDialog.Builder(this)
             .setTitle(title)
-            .setItems(labels) { _, i -> active?.webView?.let { go(it, list[i][1]) } }
+            .setAdapter(adapter) { _, i -> active?.webView?.let { go(it, list[i][1]) } }
             .setNegativeButton("Đóng", null)
         if (clearable) {
             b.setNeutralButton("Xoá hết") { _, _ -> prefs.edit().remove(key).apply() }
