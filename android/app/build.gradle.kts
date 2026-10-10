@@ -11,8 +11,8 @@ android {
         applicationId = "com.h.webandr"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         // Chi dong goi cho Android x64 (x86_64).
         ndk {

@@ -6,6 +6,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.ClipData
+import android.content.ContentValues
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
@@ -18,6 +19,9 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Environment
+import android.os.Handler
+import android.os.Looper
+import android.provider.MediaStore
 import android.util.Base64
 import android.text.InputType
 import android.text.TextUtils
@@ -50,6 +54,7 @@ import android.widget.Toast
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import androidx.webkit.JavaScriptReplyProxy
+import androidx.webkit.ScriptHandler
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -78,6 +83,13 @@ class MainActivity : Activity() {
         var title: String = "Tab mới"
         var url: String = ""
         var desktop: Boolean = false
+        var loadedAt: Long = 0L
+    }
+
+    // Giu 2 script chay luc trang bat dau tai (mo link 1 cham + chan quang cao YouTube) de goi lai khi doi cai dat.
+    private class PageScripts {
+        var oneTap: ScriptHandler? = null
+        var yt: ScriptHandler? = null
     }
 
     private val tabs = mutableListOf<Tab>()
@@ -95,6 +107,11 @@ class MainActivity : Activity() {
     private var camWeb: WebView? = null
     private lateinit var splitRoot: LinearLayout
     private lateinit var splitPaneHolder: FrameLayout
+
+    private lateinit var oneTapBtn: TextView
+    private var oneTapOn = true      // true = chạm vào link là mở (mặc định, như trình duyệt thường)
+    private var adSkipOn = true      // tự bấm "Bỏ qua" quảng cáo YouTube
+    private var lastConfigChangeAt = 0L
 
     private var customView: View? = null
     private var customCallback: WebChromeClient.CustomViewCallback? = null
@@ -119,6 +136,8 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("webandr", Context.MODE_PRIVATE)
+        oneTapOn = prefs.getBoolean("oneTap", true)
+        adSkipOn = prefs.getBoolean("adSkip", true)
         buildUi()
         // Da tung dung QR Cam -> mo ngam de tu ket noi lai va chay lich quay.
         if (prefs.getBoolean("camUsed", false)) ensureCamWeb()
@@ -168,7 +187,14 @@ class MainActivity : Activity() {
         when {
             customView != null -> hideCustomView()
             qrOverlay.visibility == View.VISIBLE -> qrOverlay.visibility = View.GONE
-            camOverlay.visibility == View.VISIBLE -> camOverlay.visibility = View.GONE
+            camOverlay.visibility == View.VISIBLE -> {
+                // Trang QR Cam tu dong trinh sua anh / xem truc tiep truoc; neu khong co gi de dong thi dong ca overlay.
+                val w = camWeb
+                if (w == null) camOverlay.visibility = View.GONE
+                else w.evaluateJavascript("(window.__camBack?window.__camBack():false)") { r ->
+                    if (r != "true") camOverlay.visibility = View.GONE
+                }
+            }
             splitService != null && splitTab?.webView?.hasFocus() == true &&
                     splitTab?.webView?.canGoBack() == true -> splitTab?.webView?.goBack()
             active?.webView?.canGoBack() == true -> active?.webView?.goBack()
@@ -225,6 +251,9 @@ class MainActivity : Activity() {
             }
         }
         bar.addView(urlBar, LinearLayout.LayoutParams(0, dp(40), 1f))
+        oneTapBtn = iconBtn("👆") { toggleOneTap() }
+        bar.addView(oneTapBtn)
+        updateOneTapBtn()
         bar.addView(iconBtn("⋮") { showMenu(it) })
         col.addView(bar, LinearLayout.LayoutParams(MATCH, WRAP))
 
@@ -283,6 +312,7 @@ class MainActivity : Activity() {
 
     override fun onConfigurationChanged(newConfig: Configuration) {
         super.onConfigurationChanged(newConfig)
+        lastConfigChangeAt = System.currentTimeMillis()
         applySplitLayout()
     }
 
@@ -329,6 +359,23 @@ class MainActivity : Activity() {
         }
 
         attachPasswordBridge(wv)
+        installPageScripts(wv)
+
+        // Khi TAT "mo link 1 cham": nhan giu 1 link de chon mo (thay cho chuot phai o ban may tinh).
+        wv.setOnLongClickListener { v ->
+            if (oneTapOn) return@setOnLongClickListener false
+            val view = v as WebView
+            val type = view.hitTestResult.type
+            if (type == WebView.HitTestResult.SRC_ANCHOR_TYPE || type == WebView.HitTestResult.SRC_IMAGE_ANCHOR_TYPE) {
+                val handler = Handler(Looper.getMainLooper()) { m ->
+                    val u = m.data?.getString("url")
+                    if (!u.isNullOrEmpty()) showLinkDialog(u)
+                    true
+                }
+                view.requestFocusNodeHref(handler.obtainMessage())
+                true
+            } else false
+        }
         return wv
     }
 
@@ -355,7 +402,7 @@ class MainActivity : Activity() {
         tabs.add(tab)
         setupClients(tab)
 
-        if (!url.isNullOrEmpty()) wv.loadUrl(url)
+        if (!url.isNullOrEmpty()) go(wv, url)
         if (select) selectTab(tab)
         return tab
     }
@@ -395,14 +442,16 @@ class MainActivity : Activity() {
                 val u = request?.url ?: return false
                 val scheme = u.scheme ?: return false
                 if (scheme == "webandr-back") {
-                    view?.loadUrl(HOME)
+                    view?.let { go(it, HOME) }
                     return true
                 }
                 if (scheme == "webandr-allow") {
                     u.getQueryParameter("h")?.let { phishingAllow.add(it.lowercase()) }
-                    u.getQueryParameter("u")?.let { view?.loadUrl(it) }
+                    u.getQueryParameter("u")?.let { target -> view?.let { go(it, target) } }
                     return true
                 }
+                // Nho zoom theo trang: ap muc zoom da luu cua trang dich truoc khi no tai.
+                if ((scheme == "http" || scheme == "https") && view != null) applyInitialScale(view, u.toString())
                 if (scheme in listOf("http", "https", "about", "data", "blob", "file", "javascript")) return false
                 try {
                     val i = if (scheme == "intent") Intent.parseUri(u.toString(), Intent.URI_INTENT_SCHEME)
@@ -429,7 +478,12 @@ class MainActivity : Activity() {
                 return null
             }
 
+            override fun onScaleChanged(view: WebView?, oldScale: Float, newScale: Float) {
+                onUserScale(tab, newScale)
+            }
+
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                tab.loadedAt = 0L
                 tab.url = url ?: ""
                 if (tab === active) {
                     urlBar.setText(tab.url)
@@ -443,8 +497,12 @@ class MainActivity : Activity() {
                     urlBar.setText(tab.url)
                     progress.visibility = View.GONE
                 }
+                tab.loadedAt = System.currentTimeMillis()
                 if (!docStartScriptSupported && url != null && url.startsWith("http")) {
                     view?.evaluateJavascript(PW_JS, null)
+                    // WebView cu khong ho tro script luc bat dau tai: chen sau khi tai xong.
+                    view?.evaluateJavascript(oneTapScript(oneTapOn), null)
+                    if (isYoutubeUrl(url)) view?.evaluateJavascript(ytScript(adSkipOn), null)
                 }
                 if (url != null && url.startsWith("http")) addHistory(view?.title ?: url, url)
             }
@@ -466,6 +524,8 @@ class MainActivity : Activity() {
             override fun onCreateWindow(
                 view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?
             ): Boolean {
+                // Khi TAT "mo link 1 cham": chan moi cua so/tab moi do trang tu mo (quang cao pop-up).
+                if (!oneTapOn) return false
                 val msg = resultMsg ?: return false
                 val transport = msg.obj as? WebView.WebViewTransport ?: return false
                 val t = newTab(null)
@@ -501,16 +561,7 @@ class MainActivity : Activity() {
                 webView: WebView?, filePathCallback: ValueCallback<Array<Uri>>?,
                 fileChooserParams: FileChooserParams?
             ): Boolean {
-                fileCallback?.onReceiveValue(null)
-                fileCallback = filePathCallback
-                return try {
-                    startActivityForResult(fileChooserParams!!.createIntent(), REQ_FILE)
-                    true
-                } catch (e: Exception) {
-                    fileCallback?.onReceiveValue(null)
-                    fileCallback = null
-                    false
-                }
+                return openFileChooser(filePathCallback, fileChooserParams)
             }
 
             override fun onPermissionRequest(request: PermissionRequest?) {
@@ -584,7 +635,7 @@ class MainActivity : Activity() {
             !t.contains(" ") && t.contains(".") -> "https://$t"
             else -> "https://www.google.com/search?q=" + Uri.encode(t)
         }
-        active?.webView?.loadUrl(url)
+        active?.webView?.let { go(it, url) }
     }
 
     private fun showMenu(anchor: View) {
@@ -606,6 +657,15 @@ class MainActivity : Activity() {
         m.add(0, 10, 0, "Chia đôi màn hình")
         m.add(0, 11, 0, "Chặn web đen / lừa đảo")
         m.add(0, 12, 0, "Mật khẩu đã lưu")
+        m.add(0, 13, 0, "Chặn quảng cáo YouTube (tự bấm Bỏ qua)").apply {
+            isCheckable = true
+            isChecked = adSkipOn
+        }
+        m.add(0, 14, 0, "Mở link bằng 1 chạm").apply {
+            isCheckable = true
+            isChecked = oneTapOn
+        }
+        m.add(0, 15, 0, "Đặt lại zoom trang này")
         m.add(0, 8, 0, "Đóng tab này")
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
@@ -621,6 +681,9 @@ class MainActivity : Activity() {
                 10 -> showSplitMenu()
                 11 -> showPhishingManager()
                 12 -> showPasswordList()
+                13 -> toggleAdSkip()
+                14 -> toggleOneTap()
+                15 -> resetZoom()
             }
             true
         }
@@ -693,7 +756,7 @@ class MainActivity : Activity() {
         val labels = list.map { if (it[0].isNotBlank()) it[0] + "\n" + it[1] else it[1] }.toTypedArray()
         val b = AlertDialog.Builder(this)
             .setTitle(title)
-            .setItems(labels) { _, i -> active?.webView?.loadUrl(list[i][1]) }
+            .setItems(labels) { _, i -> active?.webView?.let { go(it, list[i][1]) } }
             .setNegativeButton("Đóng", null)
         if (clearable) {
             b.setNeutralButton("Xoá hết") { _, _ -> prefs.edit().remove(key).apply() }
@@ -830,7 +893,13 @@ class MainActivity : Activity() {
         w.settings.domStorageEnabled = true
         w.settings.mediaPlaybackRequiresUserGesture = false
         w.webViewClient = assetClient()
-        w.webChromeClient = WebChromeClient()
+        // Can onShowFileChooser de nut "gui tep" (📤) trong trang QR Cam chon duoc tep tren dien thoai.
+        w.webChromeClient = object : WebChromeClient() {
+            override fun onShowFileChooser(
+                webView: WebView?, filePathCallback: ValueCallback<Array<Uri>>?,
+                fileChooserParams: FileChooserParams?
+            ): Boolean = openFileChooser(filePathCallback, fileChooserParams)
+        }
         w.addJavascriptInterface(CamBridge(), "AndroidCam")
         w.loadUrl("https://appassets.androidplatform.net/assets/qrcam.html")
         camWeb = w
@@ -890,6 +959,77 @@ class MainActivity : Activity() {
             }
         }
 
+        // ---- Nhan tep / sua anh tu dien thoai (DataChannel) ----
+        @JavascriptInterface
+        fun startReceived(name: String): String {
+            return try {
+                val dir = receivedDir()
+                var safe = name.replace(Regex("[\\\\/:*?\"<>|]"), "_").trim()
+                if (safe.isEmpty() || safe.all { it == '.' }) safe = "tep_" + System.currentTimeMillis()
+                if (safe.length > 120) safe = safe.takeLast(120)
+                val dot = safe.lastIndexOf('.')
+                val stem = if (dot > 0) safe.substring(0, dot) else safe
+                val ext = if (dot > 0) safe.substring(dot) else ""
+                var f = File(dir, safe)
+                var n = 1
+                while (f.exists()) {
+                    f = File(dir, stem + " (" + n + ")" + ext)
+                    n++
+                }
+                if (!isInReceivedDir(f)) return ""
+                synchronized(recordings) {
+                    val id = "rec" + (++recSeq)
+                    recordings[id] = FileOutputStream(f)
+                    JSONObject().put("id", id).put("path", f.absolutePath).toString()
+                }
+            } catch (e: Exception) {
+                ""
+            }
+        }
+
+        // Ghi de anh da sua. ext rong = giu nguyen duoi tep; tra ve duong dan moi ("" neu loi).
+        @JavascriptInterface
+        fun saveEdited(path: String, b64: String, ext: String): String {
+            return try {
+                val f = File(path)
+                if (!isInReceivedDir(f) || !f.isFile) return ""
+                val target = if (ext == "jpg" || ext == "png" || ext == "webp")
+                    File(f.parentFile, f.nameWithoutExtension + "." + ext) else f
+                target.writeBytes(Base64.decode(b64, Base64.DEFAULT))
+                if (target.absolutePath != f.absolutePath) f.delete()
+                target.absolutePath
+            } catch (e: Exception) {
+                ""
+            }
+        }
+
+        // Chep tep da nhan vao thu muc Tai xuong/QRCam de mo tu bat ky ung dung nao.
+        @JavascriptInterface
+        fun publishDownload(path: String, mime: String): Boolean {
+            return try {
+                val f = File(path)
+                if (!isInReceivedDir(f) || !f.isFile) return false
+                val type = if (mime.isNotEmpty()) mime else guessMime(f.name)
+                publishToDownloads(f, type)
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+        @JavascriptInterface
+        fun toastMsg(msg: String) {
+            runOnUiThread { Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show() }
+        }
+
+        // Co anh moi ve: dua trang QR Cam len truoc de hien trinh sua anh.
+        @JavascriptInterface
+        fun showOverlay() {
+            runOnUiThread {
+                qrOverlay.visibility = View.GONE
+                camOverlay.visibility = View.VISIBLE
+            }
+        }
+
         @JavascriptInterface
         fun textEdit(del: Int, ins: String) {
             runOnUiThread { applyTextEdit(del, ins) }
@@ -909,6 +1049,63 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun receivedDir(): File {
+        val base = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir
+        val d = File(base, "QRCam")
+        d.mkdirs()
+        return d
+    }
+
+    private fun isInReceivedDir(f: File): Boolean {
+        return try {
+            f.canonicalPath.startsWith(receivedDir().canonicalPath + File.separator)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    private fun guessMime(name: String): String {
+        val ext = name.substringAfterLast('.', "").lowercase()
+        return android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext) ?: "application/octet-stream"
+    }
+
+    private fun publishToDownloads(src: File, mime: String): Boolean {
+        return if (Build.VERSION.SDK_INT >= 29) publishToDownloadsQ(src, mime) else {
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "QRCam")
+            dir.mkdirs()
+            src.copyTo(File(dir, src.name), overwrite = true)
+            true
+        }
+    }
+
+    @android.annotation.TargetApi(29)
+    private fun publishToDownloadsQ(src: File, mime: String): Boolean {
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, src.name)
+            put(MediaStore.MediaColumns.MIME_TYPE, mime)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/QRCam")
+        }
+        val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
+        val out = contentResolver.openOutputStream(uri) ?: return false
+        out.use { o -> src.inputStream().use { it.copyTo(o) } }
+        return true
+    }
+
+    private fun openFileChooser(
+        cb: ValueCallback<Array<Uri>>?, params: WebChromeClient.FileChooserParams?
+    ): Boolean {
+        fileCallback?.onReceiveValue(null)
+        fileCallback = cb
+        return try {
+            startActivityForResult(params!!.createIntent(), REQ_FILE)
+            true
+        } catch (e: Exception) {
+            fileCallback?.onReceiveValue(null)
+            fileCallback = null
+            false
+        }
+    }
+
     // Dien thoai gui {del, ins}: xoa `del` ky tu truoc con tro roi chen `ins`.
     private fun applyTextEdit(delRaw: Int, ins: String) {
         val wv = typingWebView() ?: return
@@ -919,6 +1116,165 @@ class MainActivity : Activity() {
             return
         }
         wv.evaluateJavascript("(" + TEXT_EDIT_FN + ")(" + del + "," + JSONObject.quote(ins) + ");", null)
+    }
+
+    // ====================== Mo link 1 cham / Chan quang cao YouTube ======================
+
+    private fun isYoutubeUrl(url: String?): Boolean {
+        val h = try { Uri.parse(url ?: return false).host } catch (e: Exception) { null } ?: return false
+        return h == "youtube.com" || h.endsWith(".youtube.com") || h == "youtu.be"
+    }
+
+    private fun oneTapScript(on: Boolean): String = "window.__wbOneTap=" + on + ";" + ONE_TAP_JS
+
+    private fun ytScript(on: Boolean): String = "window.__wbAdSkip=" + on + ";" + YT_AD_JS
+
+    // Dang ky lai script luc-bat-dau-tai voi cai dat hien tai (cung cho ca iframe).
+    private fun installPageScripts(wv: WebView) {
+        if (!docStartScriptSupported) return
+        val h = (wv.tag as? PageScripts) ?: PageScripts().also { wv.tag = it }
+        try { h.oneTap?.remove() } catch (e: Exception) { }
+        try { h.yt?.remove() } catch (e: Exception) { }
+        h.oneTap = try {
+            WebViewCompat.addDocumentStartJavaScript(wv, oneTapScript(oneTapOn), setOf("*"))
+        } catch (e: Exception) { null }
+        h.yt = try {
+            WebViewCompat.addDocumentStartJavaScript(wv, ytScript(adSkipOn), setOf("https://*.youtube.com", "https://youtube.com"))
+        } catch (e: Exception) { null }
+    }
+
+    private fun allWebViews(): List<WebView> = tabs.map { it.webView } + listOfNotNull(splitTab?.webView)
+
+    // Ap cai dat moi cho moi tab dang mo (trang hien tai nhan co ngay, trang sau nhan qua script).
+    private fun applyPageFlags() {
+        for (w in allWebViews()) {
+            installPageScripts(w)
+            w.evaluateJavascript("window.__wbOneTap=" + oneTapOn + ";window.__wbAdSkip=" + adSkipOn + ";", null)
+        }
+    }
+
+    private fun updateOneTapBtn() {
+        oneTapBtn.alpha = if (oneTapOn) 1f else 0.35f
+    }
+
+    private fun toggleOneTap() {
+        oneTapOn = !oneTapOn
+        prefs.edit().putBoolean("oneTap", oneTapOn).apply()
+        updateOneTapBtn()
+        applyPageFlags()
+        Toast.makeText(
+            this,
+            if (oneTapOn) "Mở link 1 chạm: BẬT — chạm vào link là mở"
+            else "Mở link 1 chạm: TẮT — chạm vào link sẽ không mở; nhấn giữ link để chọn mở",
+            Toast.LENGTH_LONG
+        ).show()
+    }
+
+    private fun toggleAdSkip() {
+        adSkipOn = !adSkipOn
+        prefs.edit().putBoolean("adSkip", adSkipOn).apply()
+        applyPageFlags()
+        Toast.makeText(
+            this,
+            if (adSkipOn) "Chặn quảng cáo YouTube: BẬT" else "Chặn quảng cáo YouTube: TẮT",
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    private fun showLinkDialog(url: String) {
+        AlertDialog.Builder(this)
+            .setTitle(if (url.length > 90) url.substring(0, 90) + "…" else url)
+            .setItems(arrayOf("Mở trong tab mới", "Mở ở tab này", "Sao chép liên kết")) { _, i ->
+                when (i) {
+                    0 -> newTab(url)
+                    1 -> active?.webView?.let { go(it, url) }
+                    2 -> {
+                        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                        cm.setPrimaryClip(ClipData.newPlainText("link", url))
+                        Toast.makeText(this, "Đã sao chép liên kết", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            .setNegativeButton("Huỷ", null)
+            .show()
+    }
+
+    // ====================== Nho zoom theo trang ======================
+
+    private var zoomCache: JSONObject? = null
+    private val zoomRunnables = HashMap<WebView, Runnable>()
+
+    private fun originOf(url: String?): String? {
+        if (url.isNullOrEmpty()) return null
+        return try {
+            val u = Uri.parse(url)
+            val scheme = u.scheme ?: return null
+            if (scheme != "http" && scheme != "https") return null
+            val host = u.host ?: return null
+            scheme + "://" + host + (if (u.port != -1) ":" + u.port else "")
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun zoomMap(): JSONObject {
+        zoomCache?.let { return it }
+        val o = try { JSONObject(prefs.getString("zoomByOrigin", "{}") ?: "{}") } catch (e: Exception) { JSONObject() }
+        zoomCache = o
+        return o
+    }
+
+    // 0 = mac dinh cua WebView (chua tung zoom trang nay).
+    private fun savedScalePercent(url: String): Int {
+        val origin = originOf(url) ?: return 0
+        val v = zoomMap().optDouble(origin, 0.0)
+        return if (v > 0.0) (v * 100).toInt().coerceIn(50, 800) else 0
+    }
+
+    private fun applyInitialScale(wv: WebView, url: String) {
+        wv.setInitialScale(savedScalePercent(url))
+    }
+
+    // Moi lan nguoi dung tai trang theo y minh: ap muc zoom da luu cua trang do roi moi tai.
+    private fun go(wv: WebView, url: String) {
+        applyInitialScale(wv, url)
+        wv.loadUrl(url)
+    }
+
+    // Nguoi dung chum-zoom: luu lai theo tung trang (bo qua thay doi do bo cuc / xoay man hinh).
+    private fun onUserScale(tab: Tab, newScale: Float) {
+        val now = System.currentTimeMillis()
+        if (tab.loadedAt == 0L || now - tab.loadedAt < 1500 || now - lastConfigChangeAt < 1500) return
+        val origin = originOf(tab.url) ?: return
+        val wv = tab.webView
+        zoomRunnables.remove(wv)?.let { wv.removeCallbacks(it) }
+        val r = Runnable {
+            zoomRunnables.remove(wv)
+            val o = zoomMap()
+            if (Math.abs(o.optDouble(origin, 0.0) - newScale) < 0.02) return@Runnable
+            o.put(origin, newScale.toDouble())
+            if (o.length() > 300) {
+                val k = o.keys().next()
+                o.remove(k)
+            }
+            prefs.edit().putString("zoomByOrigin", o.toString()).apply()
+        }
+        zoomRunnables[wv] = r
+        wv.postDelayed(r, 600)
+    }
+
+    private fun resetZoom() {
+        val tab = active ?: return
+        val origin = originOf(tab.url)
+        if (origin == null) {
+            Toast.makeText(this, "Trang này chưa có zoom riêng", Toast.LENGTH_SHORT).show()
+            return
+        }
+        zoomMap().remove(origin)
+        prefs.edit().putString("zoomByOrigin", zoomMap().toString()).apply()
+        tab.webView.setInitialScale(0)
+        tab.webView.reload()
+        Toast.makeText(this, "Đã đặt lại zoom: " + origin, Toast.LENGTH_SHORT).show()
     }
 
     // ====================== Chia doi man hinh ======================
@@ -970,9 +1326,9 @@ class MainActivity : Activity() {
             setupClients(t)
             splitTab = t
             splitPaneHolder.addView(wv, FrameLayout.LayoutParams(MATCH, MATCH))
-            wv.loadUrl(url)
+            go(wv, url)
         } else if (splitService != service) {
-            existing.webView.loadUrl(url)
+            go(existing.webView, url)
         }
         splitService = service
         applySplitLayout()
@@ -1287,4 +1643,56 @@ function(del, ins) {
   }
   return false;
 }
+"""
+
+// Tu choi/chan link khi nguoi dung TAT "mo link 1 cham" (giong ban may tinh): chan cham vao <a href>
+// va window.open() de tranh lo tay mo trang quang cao. Link '#...' va 'javascript:' van chay binh thuong.
+private val ONE_TAP_JS = """
+(function(){
+ if(window.__wbOneTapInstalled)return; window.__wbOneTapInstalled=true;
+ if(typeof window.__wbOneTap==='undefined')window.__wbOneTap=true;
+ function blockable(a){var h=a.getAttribute('href')||'';return h!==''&&h.charAt(0)!=='#'&&h.slice(0,11).toLowerCase()!=='javascript:';}
+ function block(e){
+  if(window.__wbOneTap!==false)return;
+  var t=e.target;var a=(t&&t.closest)?t.closest('a[href]'):null;
+  if(!a||!blockable(a))return;
+  e.preventDefault();e.stopImmediatePropagation();
+ }
+ ['click','auxclick','mousedown','pointerdown','touchend'].forEach(function(n){document.addEventListener(n,block,true);});
+ try{var no=window.open;window.open=function(){if(window.__wbOneTap===false)return null;return no.apply(window,arguments);};}catch(x){}
+})();
+"""
+
+// YouTube: tu bam "Bo qua" quang cao, tua nhanh quang cao khong bo qua duoc (tat tieng roi nhay den cuoi),
+// va an banner/quang cao hien thi. Bat/tat qua window.__wbAdSkip.
+private val YT_AD_JS = """
+(function(){
+ if(window.__wbYtInstalled)return; window.__wbYtInstalled=true;
+ if(typeof window.__wbAdSkip==='undefined')window.__wbAdSkip=true;
+ var HIDE='.ytp-ad-overlay-container,.ytp-ad-text-overlay,.ytp-ad-image-overlay,.video-ads,#player-ads,ytd-promoted-sparkles-web-renderer,ytd-display-ad-renderer,ytd-in-feed-ad-layout-renderer,ytd-ad-slot-renderer,ytm-promoted-sparkles-web-renderer,ytm-companion-ad-renderer,ytm-promoted-video-renderer{display:none!important}';
+ var SKIP=['.ytp-ad-skip-button','.ytp-ad-skip-button-modern','.ytp-skip-ad-button','.videoAdUiSkipButton','.ytp-ad-skip-button-container button','.ytp-skip-ad button'];
+ var mutedByUs=false,fastByUs=false;
+ function tick(){
+  try{
+   var on=window.__wbAdSkip!==false;
+   var st=document.getElementById('__wb_adcss');
+   if(on&&!st&&document.documentElement){st=document.createElement('style');st.id='__wb_adcss';st.textContent=HIDE;document.documentElement.appendChild(st);}
+   else if(!on&&st){st.parentNode.removeChild(st);}
+   var v=document.querySelector('video.html5-main-video')||document.querySelector('video');
+   var p=document.querySelector('.html5-video-player');
+   var ad=!!(p&&(p.classList.contains('ad-showing')||p.classList.contains('ad-interrupting')));
+   if(on&&ad){
+    for(var i=0;i<SKIP.length;i++){var b=document.querySelector(SKIP[i]);if(b)b.click();}
+    if(v){
+     if(!v.muted){v.muted=true;mutedByUs=true;}
+     if(v.duration&&isFinite(v.duration)){v.currentTime=v.duration;}else{v.playbackRate=16;fastByUs=true;}
+    }
+   }else if(v){
+    if(mutedByUs){v.muted=false;mutedByUs=false;}
+    if(fastByUs){v.playbackRate=1;fastByUs=false;}
+   }
+  }catch(e){}
+ }
+ setInterval(tick,250);
+})();
 """

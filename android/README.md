@@ -37,11 +37,29 @@ Repo này được sao chép từ `Qrtuxa` (đủ lịch sử commit). Thư mụ
   đen / lừa đảo"); vào tên miền đó (hoặc tên miền con) sẽ hiện trang cảnh báo với
   nút "Quay lại an toàn" / "vẫn tiếp tục".
 
+## Đã chuyển thêm (bản 1.1.0)
+
+- **Gửi/nhận tệp qua QR Cam** (DataChannel, cùng giao thức bản máy tính):
+  - Nhận: điện thoại QrtuxaCam gửi tệp → app gom đủ rồi lưu vào
+    `Android/data/com.h.webandr/files/Download/QRCam` và chép thêm vào **Tải xuống/QRCam**
+    (tối đa 300 MB/tệp, mất kết nối giữa chừng thì huỷ).
+  - Gửi: khi ô đang kết nối kiểu truyền tệp (có DataChannel, không có video) hiện nút 📤
+    để chọn tệp trên điện thoại và gửi sang máy kia.
+- **Sửa ảnh nhận được**: ảnh nhận về tự mở trình sửa (✂️ Cắt, 🔄 Xoay, ✏️ Vẽ, 🔲 Đánh dấu,
+  ↩ Hoàn tác 1 bước). Mỗi lần sửa tự ghi đè tệp đã nhận; nút 💾 chép bản hiện tại vào Tải xuống/QRCam.
+- **Chặn quảng cáo YouTube bằng script**: tự bấm "Bỏ qua quảng cáo", quảng cáo không bỏ qua được thì
+  tắt tiếng + tua đến cuối (xong tự bật lại tiếng/tốc độ), ẩn banner/quảng cáo hiển thị. Chạy trên mọi
+  tab và pane YouTube chia đôi. Bật/tắt: menu ⋮ → "Chặn quảng cáo YouTube".
+- **Nhớ zoom theo trang**: chụm/giãn ngón tay để zoom, app nhớ riêng cho từng tên miền và áp lại khi
+  mở lại trang đó. Menu ⋮ → "Đặt lại zoom trang này" để về mặc định.
+- **Nút "Mở link bằng 1 chạm"** (👆 trên thanh địa chỉ, cũng có trong menu ⋮): BẬT (mặc định) = chạm
+  vào link là mở như bình thường. TẮT (nút mờ) = chạm vào link không mở, chặn cửa sổ pop-up; muốn mở
+  1 link thì **nhấn giữ** link → chọn "Mở trong tab mới / Mở ở tab này / Sao chép". Link `#...` và
+  `javascript:` vẫn chạy bình thường.
+
 ## Chưa chuyển sang Android
 
-Gửi/nhận tệp và sửa ảnh qua DataChannel của QR Cam, chặn quảng cáo YouTube bằng
-script tự bấm "Bỏ qua", nhớ mức zoom theo trang, nút "mở link 1 chạm", nhật ký
-console. Các phần này vẫn còn ở bản desktop.
+Nhật ký console (chỉ có ở bản máy tính).
 
 ## Build
 

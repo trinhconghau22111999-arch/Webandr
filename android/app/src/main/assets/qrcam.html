@@ -46,6 +46,19 @@
   .pop input{padding:6px;border-radius:6px;border:1px solid #5a4a8a;background:#150d2b;color:#fff;}
   #toast{position:fixed;left:12px;right:12px;bottom:18px;padding:10px 14px;border-radius:12px;background:rgba(40,25,80,.95);font-size:13px;display:none;z-index:20;text-align:center;}
   #toast.show{display:block;}
+  .sendBtn{padding:6px 10px;font-size:15px;flex:none;}
+  #imgReview{position:fixed;inset:0;background:#0d0820;display:none;flex-direction:column;z-index:30;}
+  #imgReview.show{display:flex;}
+  #imgTop,#imgTools{display:flex;gap:6px;align-items:center;padding:8px;background:#111;}
+  #imgTop .sp{flex:1;}
+  #imgTop b{font-size:13px;max-width:38%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #imgTools{justify-content:center;flex-wrap:wrap;}
+  #imgTools button{background:#3b2b66;}
+  #imgTools button.active{background:linear-gradient(135deg,#8b2dff,#c026ff);}
+  #imgStage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden;padding:6px;}
+  #imgWrap{position:relative;line-height:0;}
+  #imgWrap canvas{position:absolute;left:0;top:0;width:100%;height:100%;}
+  #imgPrev{touch-action:none;}
 </style>
 </head>
 <body>
@@ -70,6 +83,21 @@
     <button id="liveClose" class="sec">Đóng</button>
   </div>
   <div id="grid" class="l1"></div>
+</div>
+<div id="imgReview">
+  <div id="imgTop">
+    <b id="imgName"></b><span class="sp"></span>
+    <button id="imgUndo" class="sec" title="Hoàn tác thao tác vừa rồi">↩</button>
+    <button id="imgSaveDl" class="sec" title="Lưu bản này vào Tải xuống/QRCam">💾 Tải xuống</button>
+    <button id="imgClose" class="sec">✕</button>
+  </div>
+  <div id="imgStage"><div id="imgWrap"><canvas id="imgCv"></canvas><canvas id="imgPrev"></canvas></div></div>
+  <div id="imgTools">
+    <button id="tCrop">✂️ Cắt</button>
+    <button id="tRotate">🔄 Xoay</button>
+    <button id="tDraw">✏️ Vẽ</button>
+    <button id="tMark">🔲 Đánh dấu</button>
+  </div>
 </div>
 <div id="toast"></div>
 
@@ -111,7 +139,7 @@
       stream: null, connected: false, signalLost: false, reconnecting: false, lastConnectedAt: 0,
       signalLostTimer: null, reconnectTimer: null, disconnectGraceTimer: null, permissionError: false,
       recording: false, mediaRecorder: null, startTimer: null, stopTimer: null,
-      _restartAfterFlush: false, _resumeRecordingOnReconnect: false, dataChannel: null, lastPingAt: 0
+      _restartAfterFlush: false, _resumeRecordingOnReconnect: false, dataChannel: null, lastPingAt: 0, incomingTransfer: null
     };
   }
   var camSlots = []; for (var q = 0; q < MAX_CAM_SLOTS; q++) camSlots.push(makeCamSlot(q));
@@ -196,7 +224,15 @@
       st.textContent = slot.permissionError ? 'Lỗi quyền Firebase' :
         (slot.signalLost || slot.reconnecting) ? '⏳ Chờ kết nối lại...' :
         slot.connected ? 'Đang xem' : slot.roomCode ? 'Đang kết nối...' : ('ĐT ' + (i + 1));
-      row.appendChild(dot); row.appendChild(wrap); row.appendChild(st);
+      row.appendChild(dot);
+      // Chi hien khi dang ket noi kieu truyen tep (co DataChannel, khong co video) - giong ban may tinh.
+      if (slot.connected && slot.dataChannel && !slot.stream) {
+        var sb = document.createElement('button'); sb.className = 'sendBtn sec'; sb.textContent = '📤';
+        sb.title = 'Chọn tệp và gửi sang điện thoại này';
+        sb.onclick = function () { pickAndSend(i); };
+        row.appendChild(sb);
+      }
+      row.appendChild(wrap); row.appendChild(st);
       slotListEl.appendChild(row);
     });
   }
@@ -239,11 +275,22 @@
     pc.ondatachannel = function (event) {
       if (slot.pc !== pc) return;
       var ch = event.channel; ch.binaryType = 'arraybuffer'; slot.dataChannel = ch;
+      renderCamSlotList();
       ch.onmessage = function (e) {
-        if (slot.dataChannel !== ch || typeof e.data !== 'string') return;
-        var msg; try { msg = JSON.parse(e.data); } catch (err) { return; }
-        if (msg.type === 'ping') slot.lastPingAt = Date.now();
-        else if (msg.type === 'text-edit' && A.textEdit) { try { A.textEdit(msg.del | 0, typeof msg.ins === 'string' ? msg.ins : ''); } catch (er) {} }
+        if (slot.dataChannel !== ch) return;
+        if (typeof e.data === 'string') {
+          var msg; try { msg = JSON.parse(e.data); } catch (err) { return; }
+          if (msg.type === 'ping') slot.lastPingAt = Date.now();
+          else if (msg.type === 'text-edit' && A.textEdit) { try { A.textEdit(msg.del | 0, typeof msg.ins === 'string' ? msg.ins : ''); } catch (er) {} }
+          else if (msg.type === 'file-start') startIncoming(i, msg);
+          else if (msg.type === 'file-end') finishIncoming(i, msg.transferId);
+          else if (msg.type === 'file-cancel') cancelIncoming(i, msg.transferId, false);
+          return;
+        }
+        // Du lieu nhi phan = 1 doan cua tep dang nhan - gom vao RAM, ghi 1 lan khi file-end.
+        var t = slot.incomingTransfer;
+        if (!t) return;
+        t.chunks.push(e.data); t.received++;
       };
     };
 
@@ -338,6 +385,7 @@
   function _onSlotLostSignal(i) {
     var slot = camSlots[i];
     if (!slot.roomCode) return;
+    if (slot.incomingTransfer) cancelIncoming(i, slot.incomingTransfer.transferId, false, true);
     if (slot.recording) { slot._resumeRecordingOnReconnect = true; stopRecording(i, false); }
     slot.connected = false; slot.signalLost = true;
     renderCamSlotList(); updateTile(i); updateKeepAwake();
@@ -509,6 +557,242 @@
     if (todayStop <= todayStart) todayStop = new Date(todayStop.getTime() + 24 * 60 * 60 * 1000);
     if (now >= todayStart && now < todayStop) startRecording(i, true);
   }
+
+
+  // ---------- Gui / nhan tep qua DataChannel (giao thuc giong ban may tinh) ----------
+  // file-start (JSON) -> cac doan nhi phan -> file-end (JSON); file-cancel de huy.
+  var FILE_CHUNK = 64 * 1024;
+  var SAVE_SLICE = 3 * 65536;
+  var MAX_INCOMING = 300 * 1024 * 1024;
+  function say(msg) {
+    if (A.toastMsg) { try { A.toastMsg(msg); return; } catch (e) {} }
+    toast(msg);
+  }
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function isImageFile(mime, name) {
+    return /^image\//.test(mime || '') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(name || '');
+  }
+
+  function startIncoming(i, msg) {
+    var slot = camSlots[i];
+    if (slot.incomingTransfer) cancelIncoming(i, slot.incomingTransfer.transferId, true);
+    var name = String(msg.name || ('tep_' + Date.now()));
+    if ((msg.size || 0) > MAX_INCOMING) { say('⚠️ Tệp "' + name + '" quá lớn (>300MB), bỏ qua'); return; }
+    slot.incomingTransfer = {
+      transferId: msg.transferId, chunks: [], name: name,
+      mimeType: msg.mimeType || 'application/octet-stream', size: msg.size || 0, received: 0
+    };
+    say('📥 ĐT ' + (i + 1) + ' đang gửi "' + name + '"...');
+  }
+
+  function cancelIncoming(i, transferId, silent, force) {
+    var slot = camSlots[i], t = slot.incomingTransfer;
+    if (!t || (!force && t.transferId !== transferId)) return;
+    slot.incomingTransfer = null; t.chunks = null;
+    if (!silent) say('❌ Đã hủy nhận tệp từ ĐT ' + (i + 1) + ' (mất kết nối giữa chừng)');
+  }
+
+  async function finishIncoming(i, transferId) {
+    var slot = camSlots[i], t = slot.incomingTransfer;
+    if (!t || t.transferId !== transferId) return;
+    slot.incomingTransfer = null;
+    var blob = new Blob(t.chunks, { type: t.mimeType });
+    t.chunks = null;
+    var info = null;
+    try { info = A.startReceived ? JSON.parse(A.startReceived(t.name)) : null; } catch (e) { info = null; }
+    if (!info || !info.id) { say('⚠️ Nhận tệp từ ĐT ' + (i + 1) + ' thất bại (không tạo được tệp)'); return; }
+    var ok = true;
+    try {
+      for (var off = 0; off < blob.size; off += SAVE_SLICE) {
+        var buf = await blob.slice(off, off + SAVE_SLICE).arrayBuffer();
+        if (!A.appendChunk(info.id, _arrayBufferToBase64(buf))) { ok = false; break; }
+      }
+    } catch (e) { ok = false; }
+    var fin = false; try { fin = A.finishFile(info.id); } catch (e) {}
+    if (!ok || !fin) { say('⚠️ Nhận tệp từ ĐT ' + (i + 1) + ' thất bại'); return; }
+    var pub = false;
+    try { pub = A.publishDownload ? A.publishDownload(info.path, t.mimeType) : false; } catch (e) {}
+    say('📥 ĐT ' + (i + 1) + ' đã gửi: ' + t.name + (pub ? ' (đã lưu vào Tải xuống/QRCam)' : ''));
+    if (isImageFile(t.mimeType, t.name)) {
+      openImageReview(blob, info.path, t.name);
+      try { if (A.showOverlay) A.showOverlay(); } catch (e) {}
+    }
+  }
+
+  function pickAndSend(i) {
+    var slot = camSlots[i];
+    if (!slot.connected || !slot.dataChannel || slot.dataChannel.readyState !== 'open') { toast('Chưa kết nối với điện thoại này'); return; }
+    var input = document.createElement('input');
+    input.type = 'file'; input.style.display = 'none';
+    document.body.appendChild(input);
+    input.onchange = function () {
+      var f = input.files && input.files[0];
+      if (input.parentNode) input.parentNode.removeChild(input);
+      if (f) sendFileToPhone(i, f);
+    };
+    input.click();
+  }
+
+  async function sendFileToPhone(i, file) {
+    var slot = camSlots[i], ch = slot.dataChannel;
+    if (!ch || ch.readyState !== 'open') { say('Mất kết nối, không gửi được tệp'); return; }
+    var id = 'out_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+    var total = Math.max(1, Math.ceil(file.size / FILE_CHUNK));
+    say('📤 Đang gửi "' + file.name + '" sang ĐT ' + (i + 1) + '...');
+    try {
+      ch.send(JSON.stringify({ type: 'file-start', transferId: id, name: file.name,
+        mimeType: file.type || 'application/octet-stream', size: file.size, totalChunks: total }));
+      for (var off = 0; off < file.size; off += FILE_CHUNK) {
+        if (slot.dataChannel !== ch || ch.readyState !== 'open') { say('❌ Mất kết nối giữa chừng khi đang gửi "' + file.name + '"'); return; }
+        while (ch.bufferedAmount > 8 * FILE_CHUNK) {
+          await sleep(30);
+          if (slot.dataChannel !== ch || ch.readyState !== 'open') { say('❌ Mất kết nối giữa chừng khi đang gửi "' + file.name + '"'); return; }
+        }
+        var buf = await file.slice(off, off + FILE_CHUNK).arrayBuffer();
+        ch.send(buf);
+      }
+      ch.send(JSON.stringify({ type: 'file-end', transferId: id }));
+      say('✓ Đã gửi "' + file.name + '" sang ĐT ' + (i + 1));
+    } catch (err) {
+      say('❌ Gửi tệp thất bại: ' + ((err && err.message) || err));
+      try { ch.send(JSON.stringify({ type: 'file-cancel', transferId: id })); } catch (e2) {}
+    }
+  }
+
+  // ---------- Xem / sua anh nhan tu dien thoai (cat, xoay, ve, danh dau) ----------
+  // Canvas la be mat chinh; moi lan sua xong tu luu de lai vao dung tep da nhan.
+  var imgEl = document.getElementById('imgReview');
+  var cv = document.getElementById('imgCv'), pv = document.getElementById('imgPrev');
+  var cx = cv.getContext('2d'), pcx = pv.getContext('2d');
+  var imgWrap = document.getElementById('imgWrap'), imgStage = document.getElementById('imgStage');
+  var imgState = { path: null, name: '', tool: null, start: null, drawing: false, undo: null };
+  var toolBtns = { crop: document.getElementById('tCrop'), draw: document.getElementById('tDraw'), mark: document.getElementById('tMark') };
+
+  function fitCanvas() {
+    if (!cv.width || !cv.height) return;
+    var sw = imgStage.clientWidth - 12, sh = imgStage.clientHeight - 12;
+    if (sw <= 0 || sh <= 0) return;
+    var k = Math.min(sw / cv.width, sh / cv.height);
+    imgWrap.style.width = Math.max(1, Math.floor(cv.width * k)) + 'px';
+    imgWrap.style.height = Math.max(1, Math.floor(cv.height * k)) + 'px';
+  }
+  window.addEventListener('resize', fitCanvas);
+
+  function setTool(t) {
+    imgState.tool = t; imgState.start = null; imgState.drawing = false;
+    Object.keys(toolBtns).forEach(function (k) { toolBtns[k].classList.toggle('active', k === t); });
+    pcx.clearRect(0, 0, pv.width, pv.height);
+  }
+  function syncPrev() { pv.width = cv.width; pv.height = cv.height; fitCanvas(); }
+  function snapshot() {
+    var u = document.createElement('canvas'); u.width = cv.width; u.height = cv.height;
+    u.getContext('2d').drawImage(cv, 0, 0); imgState.undo = u;
+  }
+
+  function openImageReview(blob, path, name) {
+    var url = URL.createObjectURL(blob), im = new Image();
+    im.onload = function () {
+      cv.width = im.naturalWidth; cv.height = im.naturalHeight;
+      cx.drawImage(im, 0, 0); URL.revokeObjectURL(url);
+      imgState.path = path; imgState.name = name; imgState.undo = null;
+      document.getElementById('imgName').textContent = name;
+      imgEl.classList.add('show'); syncPrev(); setTool(null);
+    };
+    im.onerror = function () { URL.revokeObjectURL(url); say('⚠️ Không mở được ảnh để xem: ' + name); };
+    im.src = url;
+  }
+  function closeImageReview() { imgEl.classList.remove('show'); setTool(null); imgState.path = null; imgState.undo = null; }
+
+  function saveEdited() {
+    if (!imgState.path || !A.saveEdited) return;
+    var m = /\.([A-Za-z0-9]+)$/.exec(imgState.path), ext = m ? m[1].toLowerCase() : '';
+    var mime = 'image/jpeg', newExt = '';
+    if (ext === 'png') mime = 'image/png';
+    else if (ext === 'webp') mime = 'image/webp';
+    else if (ext !== 'jpg' && ext !== 'jpeg') newExt = 'jpg';
+    var url = cv.toDataURL(mime, 0.92), res = '';
+    try { res = A.saveEdited(imgState.path, url.slice(url.indexOf(',') + 1), newExt); } catch (e) { res = ''; }
+    if (!res) say('⚠️ Lưu chỉnh sửa ảnh thất bại'); else imgState.path = res;
+  }
+
+  function canvasPoint(e) {
+    var r = pv.getBoundingClientRect();
+    return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height };
+  }
+  function lw(div, min) { return Math.max(min, cv.width / div); }
+
+  document.getElementById('imgClose').onclick = closeImageReview;
+  toolBtns.crop.onclick = function () { setTool(imgState.tool === 'crop' ? null : 'crop'); };
+  toolBtns.draw.onclick = function () { setTool(imgState.tool === 'draw' ? null : 'draw'); };
+  toolBtns.mark.onclick = function () { setTool(imgState.tool === 'mark' ? null : 'mark'); };
+  document.getElementById('tRotate').onclick = function () {
+    snapshot();
+    var w = cv.width, h = cv.height, r = document.createElement('canvas');
+    r.width = h; r.height = w;
+    var rc = r.getContext('2d'); rc.translate(h / 2, w / 2); rc.rotate(Math.PI / 2); rc.drawImage(cv, -w / 2, -h / 2);
+    cv.width = h; cv.height = w; cx.drawImage(r, 0, 0);
+    syncPrev(); saveEdited();
+  };
+  document.getElementById('imgUndo').onclick = function () {
+    var u = imgState.undo; if (!u) { toast('Chưa có thao tác để hoàn tác'); return; }
+    cv.width = u.width; cv.height = u.height; cx.drawImage(u, 0, 0);
+    imgState.undo = null; syncPrev(); saveEdited();
+  };
+  document.getElementById('imgSaveDl').onclick = function () {
+    if (!imgState.path || !A.publishDownload) return;
+    var ok = false; try { ok = A.publishDownload(imgState.path, ''); } catch (e) {}
+    say(ok ? '💾 Đã lưu bản này vào Tải xuống/QRCam' : '⚠️ Không lưu được vào Tải xuống');
+  };
+
+  pv.addEventListener('pointerdown', function (e) {
+    var t = imgState.tool; if (!t) return;
+    e.preventDefault(); try { pv.setPointerCapture(e.pointerId); } catch (er) {}
+    var p = canvasPoint(e);
+    if (t === 'draw') {
+      snapshot(); imgState.drawing = true;
+      cx.strokeStyle = '#ff3b30'; cx.lineWidth = lw(200, 3); cx.lineCap = 'round'; cx.lineJoin = 'round';
+      cx.beginPath(); cx.moveTo(p.x, p.y); cx.lineTo(p.x, p.y); cx.stroke();
+    } else { imgState.start = p; }
+  });
+  pv.addEventListener('pointermove', function (e) {
+    var t = imgState.tool; if (!t) return;
+    var p = canvasPoint(e);
+    if (t === 'draw' && imgState.drawing) { cx.lineTo(p.x, p.y); cx.stroke(); return; }
+    var s = imgState.start; if (!s) return;
+    pcx.clearRect(0, 0, pv.width, pv.height); pcx.save();
+    if (t === 'crop') { pcx.strokeStyle = '#00e5ff'; pcx.lineWidth = lw(400, 2); pcx.setLineDash([8, 6]); pcx.strokeRect(s.x, s.y, p.x - s.x, p.y - s.y); }
+    else { pcx.strokeStyle = '#ffd400'; pcx.lineWidth = lw(150, 4); pcx.fillStyle = 'rgba(255,212,0,0.18)'; pcx.fillRect(s.x, s.y, p.x - s.x, p.y - s.y); pcx.strokeRect(s.x, s.y, p.x - s.x, p.y - s.y); }
+    pcx.restore();
+  });
+  function endPointer(e) {
+    var t = imgState.tool; if (!t) return;
+    if (t === 'draw' && imgState.drawing) { imgState.drawing = false; saveEdited(); return; }
+    var s = imgState.start; if (!s) return;
+    var p = canvasPoint(e); imgState.start = null;
+    pcx.clearRect(0, 0, pv.width, pv.height);
+    var x = Math.max(0, Math.min(s.x, p.x)), y = Math.max(0, Math.min(s.y, p.y));
+    var w = Math.min(cv.width - x, Math.abs(p.x - s.x)), h = Math.min(cv.height - y, Math.abs(p.y - s.y));
+    if (w < 10 || h < 10) return;
+    snapshot();
+    if (t === 'crop') {
+      var c = document.createElement('canvas'); c.width = Math.round(w); c.height = Math.round(h);
+      c.getContext('2d').drawImage(cv, x, y, w, h, 0, 0, c.width, c.height);
+      cv.width = c.width; cv.height = c.height; cx.drawImage(c, 0, 0); syncPrev();
+    } else {
+      cx.save(); cx.strokeStyle = '#ffd400'; cx.lineWidth = lw(150, 4); cx.fillStyle = 'rgba(255,212,0,0.18)';
+      cx.fillRect(x, y, w, h); cx.strokeRect(x, y, w, h); cx.restore();
+    }
+    setTool(null); saveEdited();
+  }
+  pv.addEventListener('pointerup', endPointer);
+  pv.addEventListener('pointercancel', function () { imgState.start = null; imgState.drawing = false; pcx.clearRect(0, 0, pv.width, pv.height); });
+
+  // Nut Back cua Android: dong trinh sua anh / xem truc tiep truoc, tra true neu da xu ly.
+  window.__camBack = function () {
+    if (imgEl.classList.contains('show')) { closeImageReview(); return true; }
+    if (camLiveOpen) { camLiveOpen = false; liveEl.classList.remove('show'); return true; }
+    return false;
+  };
 
   // Tu ket noi lai cac ma da luu khi trang duoc mo
   var saved = loadJson('cam-room-codes', ['', '', '', '']);
