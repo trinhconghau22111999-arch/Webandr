@@ -363,6 +363,24 @@ class MainActivity : Activity() {
                 topMargin = dp(6); bottomMargin = dp(6)
             })
         }
+        // Nut dich (khong phai app con, khong chia doi): dich trang hien tai sang tieng Viet / tra ve goc.
+        val tb = android.widget.ImageView(this).apply {
+            setImageResource(R.drawable.ic_translate)
+            setPadding(dp(5), dp(5), dp(5), dp(5))
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            contentDescription = "Dịch sang tiếng Việt / về ngôn ngữ gốc"
+            setOnClickListener { toggleTranslate() }
+            setOnLongClickListener {
+                Toast.makeText(this@MainActivity, "Dịch sang tiếng Việt / về ngôn ngữ gốc", Toast.LENGTH_SHORT).show()
+                true
+            }
+        }
+        translateBtn = tb
+        sideCol.addView(tb, LinearLayout.LayoutParams(dp(28), dp(28)).apply {
+            gravity = Gravity.CENTER_HORIZONTAL
+            topMargin = dp(14); bottomMargin = dp(6)
+        })
+        updateTranslateBtn()
         updateSideIcons()
         sideScroll.addView(sideCol, FrameLayout.LayoutParams(WRAP, WRAP))
         body.addView(sideScroll, LinearLayout.LayoutParams(dp(40), MATCH))
@@ -392,6 +410,71 @@ class MainActivity : Activity() {
         super.onConfigurationChanged(newConfig)
         lastConfigChangeAt = System.currentTimeMillis()
         applySplitLayout()
+    }
+
+    // ====================== Dich trang ======================
+
+    private var translateBtn: View? = null
+    private val translateSuffix = ".translate.goog"
+
+    private fun updateTranslateBtn() {
+        val b = translateBtn ?: return
+        val on = active?.url?.contains(translateSuffix) == true
+        b.background = android.graphics.drawable.GradientDrawable().apply {
+            shape = android.graphics.drawable.GradientDrawable.OVAL
+            setColor(0xFF1A73E8.toInt())
+            setStroke(if (on) dp(3) else dp(1), if (on) COLOR_BAR else 0x33000000)
+        }
+    }
+
+    // https://a.b.com/x?y=1  ->  https://a-b-com.translate.goog/x?y=1&_x_tr_sl=auto&_x_tr_tl=vi&_x_tr_hl=vi
+    private fun toTranslateUrl(u: String): String? {
+        val uri = Uri.parse(u)
+        val host = uri.host ?: return null
+        val h = host.replace("-", "--").replace(".", "-") + translateSuffix
+        val path = uri.encodedPath ?: "/"
+        val q = uri.encodedQuery
+        val tr = "_x_tr_sl=auto&_x_tr_tl=vi&_x_tr_hl=vi&_x_tr_pto=wapp"
+        val frag = uri.encodedFragment?.let { "#" + it } ?: ""
+        return "https://" + h + path + "?" + (if (!q.isNullOrEmpty()) "$q&" else "") + tr + frag
+    }
+
+    // Nguoc lai: tra ve dia chi trang goc; null neu trang khong phai ban dich.
+    private fun fromTranslateUrl(u: String): String? {
+        val uri = Uri.parse(u)
+        val host = uri.host ?: return null
+        if (!host.endsWith(translateSuffix)) return null
+        val core = host.removeSuffix(translateSuffix)
+        val orig = core.replace("--", "\u0000").replace("-", ".").replace("\u0000", "-")
+        val q = uri.encodedQuery?.split("&")?.filter { !it.startsWith("_x_tr_") && it.isNotEmpty() }?.joinToString("&")
+        return "https://" + orig + (uri.encodedPath ?: "/") + (if (!q.isNullOrEmpty()) "?$q" else "")
+    }
+
+    private fun toggleTranslate() {
+        val t = active ?: return
+        val u = t.url
+        if (!u.startsWith("http")) {
+            Toast.makeText(this, "Chưa có trang để dịch", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val orig = fromTranslateUrl(u)
+        if (orig != null) {
+            go(t.webView, orig)
+            Toast.makeText(this, "Về ngôn ngữ gốc", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val host = Uri.parse(u).host
+        if (host != null && isPhishingHost(host)) {
+            Toast.makeText(this, "Trang này nằm trong danh sách chặn", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val tr = toTranslateUrl(u)
+        if (tr == null) {
+            Toast.makeText(this, "Không dịch được trang này", Toast.LENGTH_SHORT).show()
+            return
+        }
+        go(t.webView, tr)
+        Toast.makeText(this, "Đang dịch sang tiếng Việt…", Toast.LENGTH_SHORT).show()
     }
 
     // Ve man hinh chinh Android; app van chay nen, mo lai se giu nguyen cac tab.
@@ -534,6 +617,7 @@ class MainActivity : Activity() {
         urlBar.setText(tab.url)
         progress.visibility = View.GONE
         updateBookmarkBtn()
+        updateTranslateBtn()
     }
 
     private fun closeTab(tab: Tab) {
@@ -625,6 +709,7 @@ class MainActivity : Activity() {
                 if (tab === active) {
                     urlBar.setText(tab.url)
                     progress.visibility = View.VISIBLE
+                    updateTranslateBtn()
                 }
             }
 
