@@ -56,6 +56,7 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.ScriptHandler
+import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -125,7 +126,10 @@ class MainActivity : Activity() {
 
     private val desktopUa =
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
-    private val mobileUa: String by lazy { WebSettings.getDefaultUserAgent(this) }
+    // Bo dau hieu "WebView" ("; wv", "Version/4.0") de Google cho dang nhap nhu trinh duyet thuong.
+    private val mobileUa: String by lazy {
+        WebSettings.getDefaultUserAgent(this).replace("; wv)", ")").replace(" Version/4.0", "")
+    }
 
     private val adHosts = listOf(
         "doubleclick.net", "googlesyndication.com", "googleadservices.com", "adservice.google.com",
@@ -412,6 +416,12 @@ class MainActivity : Activity() {
         s.allowFileAccess = false
         s.mixedContentMode = WebSettings.MIXED_CONTENT_COMPATIBILITY_MODE
         CookieManager.getInstance().setAcceptThirdPartyCookies(wv, true)
+        s.userAgentString = mobileUa
+        // Khong gui header X-Requested-With (ten goi app) - Google dung no de chan dang nhap trong WebView.
+        try {
+            if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST))
+                WebSettingsCompat.setRequestedWithHeaderOriginAllowList(s, emptySet())
+        } catch (e: Exception) { }
 
         wv.setDownloadListener { dlUrl, userAgent, contentDisposition, mimeType, _ ->
             try {
