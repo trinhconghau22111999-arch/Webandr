@@ -36,6 +36,7 @@ import android.view.inputmethod.InputMethodManager
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.URLUtil
 import android.webkit.ValueCallback
 import android.webkit.WebChromeClient
@@ -707,6 +708,13 @@ class MainActivity : Activity() {
                 onUserScale(tab, newScale)
             }
 
+            // Tien trinh hien thi bi he thong giet (het RAM / trang qua nang): neu khong xu ly thi ca app bi van.
+            override fun onRenderProcessGone(view: WebView?, detail: RenderProcessGoneDetail?): Boolean {
+                val v = view ?: return true
+                runOnUiThread { recoverCrashedWebView(tab, v) }
+                return true
+            }
+
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                 tab.loadedAt = 0L
                 tab.url = url ?: ""
@@ -859,7 +867,8 @@ class MainActivity : Activity() {
         "function hook(){var i=document.querySelector('input[type=email],#identifierId,input[name=identifier]');" +
         "if(!i||i.__wbh)return;i.__wbh=1;" +
         "var f=function(){if(i.value)return;try{AndroidAcct.postMessage('pick')}catch(e){}};" +
-        "i.addEventListener('focus',f);i.addEventListener('click',f);}" +
+        "i.addEventListener('focus',f);i.addEventListener('click',f);" +
+        "if(!window.__wbAuto){window.__wbAuto=1;setTimeout(f,600)}}" +
         "hook();setInterval(hook,500)})()"
 
     private var acctPromptShowing = false
@@ -868,7 +877,7 @@ class MainActivity : Activity() {
         try {
             if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
                 WebViewCompat.addWebMessageListener(wv, "AndroidAcct", setOf("https://accounts.google.com")) { view, message, _, isMainFrame, _ ->
-                    if (isMainFrame && message.data == "pick") runOnUiThread { showGoogleAccountPicker(view) }
+                    if (isMainFrame && message.data == "pick" && pendingGoogleEmail == null) runOnUiThread { showGoogleAccountPicker(view) }
                 }
             }
         } catch (e: Exception) { }
@@ -2135,6 +2144,26 @@ class MainActivity : Activity() {
                 if (splitTabs[svc] === t && splitService != svc && r != "true") dropSplit(svc, true)
             }
         }
+    }
+
+    private fun recoverCrashedWebView(tab: Tab, v: WebView) {
+        val svc = splitTabs.entries.firstOrNull { it.value === tab }?.key
+        if (svc != null) {
+            val wasShown = splitService == svc
+            dropSplit(svc, true)
+            if (wasShown) enterSplit(svc)
+        } else if (tabs.contains(tab) && tab.webView === v && !tab.discarded) {
+            zoomRunnables.remove(v)?.let { v.removeCallbacks(it) }
+            try { content.removeView(v); v.destroy() } catch (e: Exception) { }
+            tab.discarded = true
+            tab.paused = false
+            tab.playing = false
+            tab.state = null
+            if (tab === active) selectTab(tab) else tab.button.alpha = 0.55f
+        } else {
+            return
+        }
+        Toast.makeText(this, "Trang quá nặng nên bị thu hồi bộ nhớ, đã tải lại", Toast.LENGTH_SHORT).show()
     }
 
     // Giai phong WebView cua tab khong dung; chi nho URL, bam vao se nap lai dung trang cu.
