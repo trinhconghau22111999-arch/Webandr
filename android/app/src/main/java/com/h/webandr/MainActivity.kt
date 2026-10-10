@@ -262,7 +262,11 @@ class MainActivity : Activity() {
         bar.addView(iconBtn("📷") { takeScreenshot() })
         bookmarkBtn = iconBtn("☆") { toggleBookmark() }
         bar.addView(bookmarkBtn)
-        bar.addView(iconBtn("⬇") { openDownloads() })
+        bar.addView(iconBtn("⬇") { openDownloads() }.apply {
+            textSize = 30f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            layoutParams = LinearLayout.LayoutParams(dp(52), dp(44))
+        })
         bar.addView(iconBtn("✕") { finishAndRemoveTask() }.apply {
             setBackgroundColor(0xFFD32F2F.toInt())
             (layoutParams as LinearLayout.LayoutParams).leftMargin = dp(4)
