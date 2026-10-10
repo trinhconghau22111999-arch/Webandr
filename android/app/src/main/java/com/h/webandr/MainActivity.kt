@@ -176,7 +176,7 @@ class MainActivity : Activity() {
     override fun onPause() {
         super.onPause()
         val arr = JSONArray()
-        for (t in tabs) if (t.url.startsWith("http")) arr.put(t.url)
+        for (t in tabs) if (t.url.startsWith("http")) arr.put(displayUrl(t.url))
         prefs.edit().putString("tabs", arr.toString())
             .putInt("activeIdx", tabs.indexOf(active).coerceAtLeast(0)).apply()
         val ed = prefs.edit()
@@ -417,6 +417,9 @@ class MainActivity : Activity() {
     private var translateBtn: View? = null
     private val translateSuffix = ".translate.goog"
 
+    // Thanh dia chi, dau trang, lich su luon dung dia chi goc, khong phai ban .translate.goog.
+    private fun displayUrl(u: String): String = fromTranslateUrl(u) ?: u
+
     private fun updateTranslateBtn() {
         val b = translateBtn ?: return
         val on = active?.url?.contains(translateSuffix) == true
@@ -614,7 +617,7 @@ class MainActivity : Activity() {
             t.holder.setBackgroundColor(if (on) COLOR_TAB_ON else Color.TRANSPARENT)
             t.button.setTextColor(if (on) COLOR_BAR else COLOR_TAB_TEXT)
         }
-        urlBar.setText(tab.url)
+        urlBar.setText(displayUrl(tab.url))
         progress.visibility = View.GONE
         updateBookmarkBtn()
         updateTranslateBtn()
@@ -707,7 +710,7 @@ class MainActivity : Activity() {
                 tab.loadedAt = 0L
                 tab.url = url ?: ""
                 if (tab === active) {
-                    urlBar.setText(tab.url)
+                    urlBar.setText(displayUrl(tab.url))
                     progress.visibility = View.VISIBLE
                     updateTranslateBtn()
                 }
@@ -716,7 +719,7 @@ class MainActivity : Activity() {
             override fun onPageFinished(view: WebView?, url: String?) {
                 tab.url = url ?: ""
                 if (tab === active) {
-                    urlBar.setText(tab.url)
+                    urlBar.setText(displayUrl(tab.url))
                     progress.visibility = View.GONE
                     updateBookmarkBtn()
                 }
@@ -727,7 +730,7 @@ class MainActivity : Activity() {
                     view?.evaluateJavascript(oneTapScript(oneTapOn), null)
                     if (isYoutubeUrl(url)) view?.evaluateJavascript(ytScript(adSkipOn), null)
                 }
-                if (url != null && url.startsWith("http")) addHistory(view?.title ?: url, url)
+                if (url != null && url.startsWith("http") && !url.contains(translateSuffix)) addHistory(view?.title ?: url, url)
                 val pendingEm = pendingGoogleEmail
                 if (pendingEm != null && url != null) {
                     if (url.contains("accounts.google.com")) {
@@ -1017,12 +1020,13 @@ class MainActivity : Activity() {
         val tab = active ?: return
         if (!tab.url.startsWith("http")) return
         val list = readList("bookmarks")
-        val existing = list.indexOfFirst { it[1] == tab.url }
+        val curUrl = displayUrl(tab.url)
+        val existing = list.indexOfFirst { it[1] == curUrl }
         if (existing >= 0) {
             list.removeAt(existing)
             Toast.makeText(this, "Đã bỏ dấu trang", Toast.LENGTH_SHORT).show()
         } else {
-            list.add(0, arrayOf(tab.title, tab.url))
+            list.add(0, arrayOf(tab.title, curUrl))
             Toast.makeText(this, "Đã thêm dấu trang", Toast.LENGTH_SHORT).show()
         }
         writeList("bookmarks", list)
@@ -1030,7 +1034,7 @@ class MainActivity : Activity() {
     }
 
     private fun updateBookmarkBtn() {
-        val u = active?.url ?: ""
+        val u = displayUrl(active?.url ?: "")
         val on = u.isNotEmpty() && readList("bookmarks").any { it[1] == u }
         bookmarkBtn.text = if (on) "★" else "☆"
         bookmarkBtn.setTextColor(if (on) 0xFFFFC107.toInt() else Color.WHITE)
