@@ -277,8 +277,6 @@ class MainActivity : Activity() {
         }
         val scroll = HorizontalScrollView(this).apply { isHorizontalScrollBarEnabled = false }
         tabBar = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
-        scroll.addView(tabBar, FrameLayout.LayoutParams(WRAP, MATCH))
-        tabRow.addView(scroll, LinearLayout.LayoutParams(0, MATCH, 1f))
         val plus = TextView(this).apply {
             text = "＋"
             textSize = 20f
@@ -286,7 +284,12 @@ class MainActivity : Activity() {
             setTextColor(COLOR_BAR)
             setOnClickListener { newTab(HOME) }
         }
-        tabRow.addView(plus, LinearLayout.LayoutParams(dp(44), MATCH))
+        // Nut + nam ngay ben phai tab cuoi cung (cuon cung cac tab).
+        val tabsAndPlus = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        tabsAndPlus.addView(tabBar, LinearLayout.LayoutParams(WRAP, MATCH))
+        tabsAndPlus.addView(plus, LinearLayout.LayoutParams(dp(44), MATCH))
+        scroll.addView(tabsAndPlus, FrameLayout.LayoutParams(WRAP, MATCH))
+        tabRow.addView(scroll, LinearLayout.LayoutParams(0, MATCH, 1f))
         col.addView(tabRow, LinearLayout.LayoutParams(MATCH, dp(38)))
 
         // Noi dung
