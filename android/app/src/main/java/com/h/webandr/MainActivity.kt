@@ -80,11 +80,15 @@ private const val COLOR_TAB_TEXT = 0xFF5A4A7A.toInt()
 @Suppress("DEPRECATION")
 class MainActivity : Activity() {
 
-    private class Tab(val webView: WebView, val button: TextView, val holder: View = button) {
+    private class Tab(var webView: WebView, val button: TextView, val holder: View = button) {
         var title: String = "Tab mới"
         var url: String = ""
         var desktop: Boolean = false
         var loadedAt: Long = 0L
+        var paused: Boolean = false      // WebView dang bi tam dung (tab nen khong phat media)
+        var playing: Boolean = false     // dang phat nhac/video
+        var discarded: Boolean = false   // da giai phong WebView, chi con nho URL
+        var lastUsed: Long = System.currentTimeMillis()
     }
 
     // Giu 2 script chay luc trang bat dau tai (mo link 1 cham + chan quang cao YouTube) de goi lai khi doi cai dat.
@@ -140,6 +144,7 @@ class MainActivity : Activity() {
         oneTapOn = prefs.getBoolean("oneTap", true)
         adSkipOn = prefs.getBoolean("adSkip", true)
         buildUi()
+        ui.postDelayed(sweep, SWEEP_MS)
         // Da tung dung QR Cam -> mo ngam de tu ket noi lai va chay lich quay.
         if (prefs.getBoolean("camUsed", false)) ensureCamWeb()
 
@@ -169,13 +174,22 @@ class MainActivity : Activity() {
         prefs.edit().putString("tabs", arr.toString())
             .putInt("activeIdx", tabs.indexOf(active).coerceAtLeast(0)).apply()
         val ed = prefs.edit()
-        for ((n, t) in splitTabs) if (t.url.startsWith("http")) ed.putString("split_$n", t.url)
+        for ((n, t) in splitTabs) if (n in KEEP_URL_SERVICES && t.url.startsWith("http")) ed.putString("split_$n", t.url)
         ed.apply()
         CookieManager.getInstance().flush()
     }
 
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+            val now = System.currentTimeMillis()
+            for (t in tabs.toList()) if (t !== active && !t.playing && now - t.lastUsed > 60_000L) discardTab(t)
+        }
+    }
+
     override fun onDestroy() {
-        for (t in tabs) t.webView.destroy()
+        ui.removeCallbacks(sweep)
+        for (t in tabs) if (!t.discarded) t.webView.destroy()
         qrWeb?.destroy()
         camWeb?.destroy()
         for (t in splitTabs.values) t.webView.destroy()
@@ -477,10 +491,16 @@ class MainActivity : Activity() {
     }
 
     private fun selectTab(tab: Tab) {
+        val prev = active
+        if (tab.discarded) reviveTab(tab)
         active = tab
+        val now = System.currentTimeMillis()
+        if (prev != null && prev !== tab) prev.lastUsed = now
+        tab.lastUsed = now
+        if (tab.paused) { tab.webView.onResume(); tab.paused = false }
         for (t in tabs) {
             val on = t === tab
-            t.webView.visibility = if (on) View.VISIBLE else View.GONE
+            if (!t.discarded) t.webView.visibility = if (on) View.VISIBLE else View.GONE
             t.holder.setBackgroundColor(if (on) COLOR_TAB_ON else Color.TRANSPARENT)
             t.button.setTextColor(if (on) COLOR_BAR else COLOR_TAB_TEXT)
         }
@@ -494,8 +514,11 @@ class MainActivity : Activity() {
         if (idx < 0) return
         tabs.removeAt(idx)
         tabBar.removeView(tab.holder)
-        content.removeView(tab.webView)
-        tab.webView.post { tab.webView.destroy() }
+        if (!tab.discarded) {
+            val w = tab.webView
+            content.removeView(w)
+            w.post { w.destroy() }
+        }
         if (tabs.isEmpty()) {
             newTab(HOME)
         } else if (active === tab) {
@@ -1567,7 +1590,7 @@ class MainActivity : Activity() {
         } catch (e: Exception) { null }
     }
 
-    private fun allWebViews(): List<WebView> = tabs.map { it.webView } + splitTabs.values.map { it.webView }
+    private fun allWebViews(): List<WebView> = tabs.filter { !it.discarded }.map { it.webView } + splitTabs.values.map { it.webView }
 
     // Ap cai dat moi cho moi tab dang mo (trang hien tai nhan co ngay, trang sau nhan qua script).
     private fun applyPageFlags() {
@@ -1764,28 +1787,128 @@ class MainActivity : Activity() {
         if (splitService == service) exitSplit() else enterSplit(service)
     }
 
+    // YouTube / Google: dong lai chi nho duong dan cu (va chi chay nen khi dang phat video).
+    // Telegram / Zalo / Facebook: dong la dong han, mo lai vao tu dau.
+    private val KEEP_URL_SERVICES = setOf("YouTube", "Google")
+
     private fun enterSplit(service: String) {
         val url = splitUrls[service] ?: return
+        val prev = splitService
         val t = splitTabs.getOrPut(service) {
             val wv = createConfiguredWebView()
             val nt = Tab(wv, TextView(this))
             setupClients(nt)
             wv.visibility = View.GONE
             splitPaneHolder.addView(wv, FrameLayout.LayoutParams(MATCH, MATCH))
-            val saved = prefs.getString("split_$service", null)
+            val saved = if (service in KEEP_URL_SERVICES) prefs.getString("split_$service", null) else null
             go(wv, if (!saved.isNullOrEmpty() && saved.startsWith("http")) saved else url)
             nt
         }
+        if (t.paused) { t.webView.onResume(); t.paused = false }
         for ((n, tb) in splitTabs) tb.webView.visibility = if (n == service) View.VISIBLE else View.GONE
         splitTab = t
         splitService = service
         applySplitLayout()
+        if (prev != null && prev != service) closeSplitService(prev)
     }
 
-    // Giu nguyen WebView cua pane (khong huy) de khong mat phien dang nhap.
     private fun exitSplit() {
+        val svc = splitService ?: return
         splitService = null
         applySplitLayout()
+        closeSplitService(svc)
+    }
+
+    private fun closeSplitService(svc: String) {
+        val t = splitTabs[svc] ?: return
+        t.webView.visibility = View.GONE
+        if (svc !in KEEP_URL_SERVICES) { dropSplit(svc, false); return }
+        // Chi giu lai (chay nen) neu dang phat video/nhac.
+        t.webView.evaluateJavascript(PLAY_JS) { r ->
+            if (splitTabs[svc] === t && splitService != svc && r != "true") dropSplit(svc, true)
+        }
+    }
+
+    private fun dropSplit(svc: String, remember: Boolean) {
+        val t = splitTabs.remove(svc) ?: return
+        val ed = prefs.edit()
+        if (remember && t.url.startsWith("http")) ed.putString("split_$svc", t.url) else ed.remove("split_$svc")
+        ed.apply()
+        if (splitTab === t) splitTab = null
+        val wv = t.webView
+        zoomRunnables.remove(wv)?.let { wv.removeCallbacks(it) }
+        splitPaneHolder.removeView(wv)
+        wv.stopLoading()
+        wv.destroy()
+    }
+
+    // ====================== Tab nen: tam dung / giai phong bo nho ======================
+
+    private val ui = Handler(Looper.getMainLooper())
+    private val SWEEP_MS = 3000L
+    private val IDLE_TAB_MS = 10 * 60 * 1000L
+    private val PLAY_JS = "(function(){try{var m=document.querySelectorAll('video,audio');" +
+            "for(var i=0;i<m.length;i++){var e=m[i];if(!e.paused&&!e.ended&&e.readyState>2)return true}}" +
+            "catch(x){}return false})()"
+
+    private val sweep = object : Runnable {
+        override fun run() {
+            try { sweepBackground() } catch (e: Exception) { }
+            ui.postDelayed(this, SWEEP_MS)
+        }
+    }
+
+    private fun sweepBackground() {
+        val now = System.currentTimeMillis()
+        for (t in tabs.toList()) {
+            if (t === active || t.discarded) continue
+            if (!t.paused) {
+                t.webView.evaluateJavascript(PLAY_JS) { r ->
+                    if (!t.discarded && t !== active && !t.paused) {
+                        t.playing = r == "true"
+                        if (t.playing) t.lastUsed = System.currentTimeMillis()
+                        else { t.webView.onPause(); t.paused = true }
+                    }
+                }
+            } else if (now - t.lastUsed > IDLE_TAB_MS) {
+                discardTab(t)
+            }
+        }
+        // Dich vu chia doi dang an (YouTube/Google): chi song khi con phat video.
+        for ((svc, t) in splitTabs.entries.toList()) {
+            if (svc == splitService) continue
+            t.webView.evaluateJavascript(PLAY_JS) { r ->
+                if (splitTabs[svc] === t && splitService != svc && r != "true") dropSplit(svc, true)
+            }
+        }
+    }
+
+    // Giai phong WebView cua tab khong dung; chi nho URL, bam vao se nap lai dung trang cu.
+    private fun discardTab(t: Tab) {
+        if (t.discarded || t === active || t.playing || !t.url.startsWith("http")) return
+        val wv = t.webView
+        zoomRunnables.remove(wv)?.let { wv.removeCallbacks(it) }
+        content.removeView(wv)
+        wv.stopLoading()
+        wv.destroy()
+        t.discarded = true
+        t.paused = false
+        t.playing = false
+        t.button.alpha = 0.55f
+    }
+
+    private fun reviveTab(t: Tab) {
+        val wv = createConfiguredWebView()
+        if (t.desktop) wv.settings.userAgentString = desktopUa
+        wv.visibility = View.GONE
+        content.addView(wv, 0, FrameLayout.LayoutParams(MATCH, MATCH))
+        t.webView = wv
+        t.discarded = false
+        t.paused = false
+        t.loadedAt = 0L
+        t.button.alpha = 1f
+        setupClients(t)
+        if (t.url.startsWith("http")) go(wv, t.url)
     }
 
     // ====================== Chan web den / lua dao ======================
