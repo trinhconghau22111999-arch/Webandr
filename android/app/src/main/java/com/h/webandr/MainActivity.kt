@@ -187,6 +187,7 @@ class MainActivity : Activity() {
     override fun onBackPressed() {
         when {
             customView != null -> hideCustomView()
+            drawerScrim.visibility == View.VISIBLE -> closeDrawer()
             qrOverlay.visibility == View.VISIBLE -> qrOverlay.visibility = View.GONE
             camOverlay.visibility == View.VISIBLE -> {
                 // Trang QR Cam tu dong trinh sua anh / xem truc tiep truoc; neu khong co gi de dong thi dong ca overlay.
@@ -290,6 +291,13 @@ class MainActivity : Activity() {
         tabsAndPlus.addView(plus, LinearLayout.LayoutParams(dp(44), MATCH))
         scroll.addView(tabsAndPlus, FrameLayout.LayoutParams(WRAP, MATCH))
         tabRow.addView(scroll, LinearLayout.LayoutParams(0, MATCH, 1f))
+        val bmBtn = TextView(this).apply {
+            text = "🔖"
+            textSize = 18f
+            gravity = Gravity.CENTER
+            setOnClickListener { openDrawer() }
+        }
+        tabRow.addView(bmBtn, LinearLayout.LayoutParams(dp(44), MATCH))
         col.addView(tabRow, LinearLayout.LayoutParams(MATCH, dp(38)))
 
         // Noi dung
@@ -336,6 +344,7 @@ class MainActivity : Activity() {
         content.addView(camOverlay, FrameLayout.LayoutParams(MATCH, MATCH))
 
         rootFrame.addView(col, FrameLayout.LayoutParams(MATCH, MATCH))
+        buildDrawer()
         setContentView(rootFrame)
         applySplitLayout()
     }
@@ -826,13 +835,7 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun showList(title: String, key: String, clearable: Boolean) {
-        val list = readList(key)
-        if (list.isEmpty()) {
-            Toast.makeText(this, "$title: chưa có mục nào", Toast.LENGTH_SHORT).show()
-            return
-        }
-        val adapter = object : android.widget.BaseAdapter() {
+    private fun rowAdapter(list: List<Array<String>>): android.widget.BaseAdapter = object : android.widget.BaseAdapter() {
             override fun getCount() = list.size
             override fun getItem(position: Int) = list[position]
             override fun getItemId(position: Int) = position.toLong()
@@ -858,7 +861,74 @@ class MainActivity : Activity() {
                 })
                 return row
             }
+    }
+
+    // ====================== Ngan keo dau trang (ben trai) ======================
+
+    private lateinit var drawerScrim: FrameLayout
+    private lateinit var drawerPanel: LinearLayout
+    private lateinit var drawerList: android.widget.ListView
+    private lateinit var drawerEmpty: TextView
+
+    private fun buildDrawer() {
+        val w = dp(300)
+        drawerScrim = FrameLayout(this).apply {
+            setBackgroundColor(0x66000000)
+            visibility = View.GONE
+            setOnClickListener { closeDrawer() }
         }
+        drawerPanel = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Color.WHITE)
+            setOnClickListener { }
+        }
+        drawerPanel.addView(TextView(this).apply {
+            text = "🔖  Dấu trang"
+            textSize = 16f
+            setTextColor(Color.WHITE)
+            setBackgroundColor(COLOR_BAR)
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), 0, dp(16), 0)
+        }, LinearLayout.LayoutParams(MATCH, dp(48)))
+        drawerEmpty = TextView(this).apply {
+            text = "Chưa có dấu trang nào.\nBấm ☆ trên thanh trên để thêm."
+            setTextColor(0xFF666666.toInt())
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
+        drawerPanel.addView(drawerEmpty, LinearLayout.LayoutParams(MATCH, WRAP))
+        drawerList = android.widget.ListView(this).apply {
+            setOnItemClickListener { _, _, i, _ ->
+                val list = readList("bookmarks")
+                if (i in list.indices) newTab(list[i][1])
+                closeDrawer()
+            }
+        }
+        drawerPanel.addView(drawerList, LinearLayout.LayoutParams(MATCH, 0, 1f))
+        drawerScrim.addView(drawerPanel, FrameLayout.LayoutParams(w, MATCH, Gravity.START))
+        rootFrame.addView(drawerScrim, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
+
+    private fun openDrawer() {
+        val list = readList("bookmarks")
+        drawerList.adapter = rowAdapter(list)
+        drawerEmpty.visibility = if (list.isEmpty()) View.VISIBLE else View.GONE
+        drawerScrim.visibility = View.VISIBLE
+        drawerPanel.translationX = -dp(300).toFloat()
+        drawerPanel.animate().translationX(0f).setDuration(200).start()
+    }
+
+    private fun closeDrawer() {
+        drawerPanel.animate().translationX(-dp(300).toFloat()).setDuration(180)
+            .withEndAction { drawerScrim.visibility = View.GONE }.start()
+    }
+
+    private fun showList(title: String, key: String, clearable: Boolean) {
+        val list = readList(key)
+        if (list.isEmpty()) {
+            Toast.makeText(this, "$title: chưa có mục nào", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val adapter = rowAdapter(list)
         val b = AlertDialog.Builder(this)
             .setTitle(title)
             .setAdapter(adapter) { _, i -> active?.webView?.let { go(it, list[i][1]) } }
