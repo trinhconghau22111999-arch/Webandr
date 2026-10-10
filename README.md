@@ -1,3 +1,5 @@
+> **Webandr** = bản sao của Qrtuxa, đã thêm ứng dụng Android x86_64 trong thư mục [`android/`](android/README.md).
+
 # Qrtuxa — trình duyệt desktop + nhập liệu từ xa bằng QR + xem webcam điện thoại
 
 Ứng dụng desktop (Electron, chạy trên Windows) có 3 phần:
