@@ -57,7 +57,6 @@ import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import androidx.webkit.JavaScriptReplyProxy
 import androidx.webkit.ScriptHandler
-import androidx.webkit.WebSettingsCompat
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
@@ -131,28 +130,6 @@ class MainActivity : Activity() {
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
     // User-Agent that cua WebView tren may (giu nguyen "; wv", "Version/4.0"), khong gia, khong che.
     private val mobileUa: String by lazy { WebSettings.getDefaultUserAgent(this) }
-
-    // Ngoai le: site chan WebView ("Truy cap tam thoi bi han che") -> CHI rieng host nay dung UA da cat
-    // "; wv"/"Version/4.0" va khong gui X-Requested-With. Moi trang khac dung UA that.
-    private val uaExemptHosts = listOf("github.com")
-    private val headerOff = java.util.WeakHashMap<WebView, Boolean>()
-    private val cleanedUa: String by lazy { mobileUa.replace("; wv)", ")").replace(" Version/4.0", "") }
-
-    private fun applyUaFor(wv: WebView, url: String?) {
-        val host = try { Uri.parse(url ?: "").host } catch (e: Exception) { null }
-        val st = wv.settings
-        if (st.userAgentString == desktopUa) return
-        val ex = host != null && uaExemptHosts.any { host == it || host.endsWith(".$it") }
-        val want = if (ex) cleanedUa else mobileUa
-        if (st.userAgentString != want) st.userAgentString = want
-        if (headerOff[wv] != ex) {
-            try {
-                if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST))
-                    WebSettingsCompat.setRequestedWithHeaderOriginAllowList(st, if (ex) emptySet() else setOf("*"))
-                headerOff[wv] = ex
-            } catch (e: Exception) { }
-        }
-    }
 
     private val adHosts = listOf(
         "doubleclick.net", "googlesyndication.com", "googleadservices.com", "adservice.google.com",
@@ -684,7 +661,7 @@ class MainActivity : Activity() {
                     return true
                 }
                 // Nho zoom theo trang: ap muc zoom da luu cua trang dich truoc khi no tai.
-                if ((scheme == "http" || scheme == "https") && view != null) { applyInitialScale(view, u.toString()); applyUaFor(view, u.toString()) }
+                if ((scheme == "http" || scheme == "https") && view != null) applyInitialScale(view, u.toString())
                 if (scheme in listOf("http", "https", "about", "data", "blob", "file", "javascript")) return false
                 // Telegram / Zalo / Facebook: luon o lai ban web, khong nhay sang app cai tren may.
                 if (scheme in blockedAppSchemes) return true
@@ -731,7 +708,6 @@ class MainActivity : Activity() {
             }
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                if (view != null) applyUaFor(view, url)
                 tab.loadedAt = 0L
                 tab.url = url ?: ""
                 if (tab === active) {
@@ -1959,7 +1935,6 @@ class MainActivity : Activity() {
     // Moi lan nguoi dung tai trang theo y minh: ap muc zoom da luu cua trang do roi moi tai.
     private fun go(wv: WebView, url: String) {
         applyInitialScale(wv, url)
-        applyUaFor(wv, url)
         wv.loadUrl(url)
     }
 
