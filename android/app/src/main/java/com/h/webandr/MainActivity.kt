@@ -138,13 +138,15 @@ class MainActivity : Activity() {
     private val headerOff = java.util.WeakHashMap<WebView, Boolean>()
     private val cleanedUa: String by lazy { mobileUa.replace("; wv)", ")").replace(" Version/4.0", "") }
 
-    private fun applyUaFor(wv: WebView, url: String?) {
+    // Tra ve true neu vua DOI UA/header (noi goi phai tu tai lai URL de ap dung).
+    private fun applyUaFor(wv: WebView, url: String?): Boolean {
+        var changed = false
         val host = try { Uri.parse(url ?: "").host } catch (e: Exception) { null }
         val st = wv.settings
-        if (st.userAgentString == desktopUa) return
+        if (st.userAgentString == desktopUa) return false
         val ex = host != null && uaExemptHosts.any { host == it || host.endsWith(".$it") }
         val want = if (ex) cleanedUa else mobileUa
-        if (st.userAgentString != want) st.userAgentString = want
+        if (st.userAgentString != want) { st.userAgentString = want; changed = true }
         if (headerOff[wv] != ex) {
             try {
                 if (WebViewFeature.isFeatureSupported(WebViewFeature.REQUESTED_WITH_HEADER_ALLOW_LIST))
@@ -152,6 +154,7 @@ class MainActivity : Activity() {
                 headerOff[wv] = ex
             } catch (e: Exception) { }
         }
+        return changed
     }
 
     private val adHosts = listOf(
@@ -684,7 +687,15 @@ class MainActivity : Activity() {
                     return true
                 }
                 // Nho zoom theo trang: ap muc zoom da luu cua trang dich truoc khi no tai.
-                if ((scheme == "http" || scheme == "https") && view != null) { applyInitialScale(view, u.toString()); applyUaFor(view, u.toString()) }
+                if ((scheme == "http" || scheme == "https") && view != null) {
+                    applyInitialScale(view, u.toString())
+                    // Doi UA giua chung lam WebView huy lan chuyen trang -> tu tai lai URL voi UA moi.
+                    if (request.method == "GET" && applyUaFor(view, u.toString())) {
+                        val target = u.toString()
+                        view.post { view.loadUrl(target) }
+                        return true
+                    }
+                }
                 if (scheme in listOf("http", "https", "about", "data", "blob", "file", "javascript")) return false
                 // Telegram / Zalo / Facebook: luon o lai ban web, khong nhay sang app cai tren may.
                 if (scheme in blockedAppSchemes) return true
@@ -731,7 +742,6 @@ class MainActivity : Activity() {
             }
 
             override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                if (view != null) applyUaFor(view, url)
                 tab.loadedAt = 0L
                 tab.url = url ?: ""
                 if (tab === active) {
