@@ -1199,8 +1199,19 @@ class MainActivity : Activity() {
         header.addView(TextView(this).apply {
             text = "⬇  Tải xuống"
             textSize = 18f
+            gravity = Gravity.CENTER_VERTICAL
             setTextColor(Color.WHITE)
-        }, LinearLayout.LayoutParams(0, MATCH, 1f))
+        }, LinearLayout.LayoutParams(WRAP, MATCH))
+        // Nut xoa lich su tai xuong (ben phai tieu de). Chi xoa danh sach, KHONG xoa tep da tai.
+        header.addView(TextView(this).apply {
+            text = "🗑 Xoá"
+            textSize = 15f
+            gravity = Gravity.CENTER
+            setTextColor(Color.WHITE)
+            setPadding(dp(14), 0, dp(14), 0)
+            setOnClickListener { confirmClearDownloads() }
+        }, LinearLayout.LayoutParams(WRAP, MATCH))
+        header.addView(View(this), LinearLayout.LayoutParams(0, MATCH, 1f))
         header.addView(TextView(this).apply {
             text = "✕"
             textSize = 22f
@@ -1222,6 +1233,19 @@ class MainActivity : Activity() {
         dlPanel.addView(sc, LinearLayout.LayoutParams(MATCH, 0, 1f))
         dlScrim.addView(dlPanel, FrameLayout.LayoutParams(MATCH, MATCH, Gravity.TOP))
         rootFrame.addView(dlScrim, FrameLayout.LayoutParams(MATCH, MATCH))
+    }
+
+    private fun confirmClearDownloads() {
+        if (readDownloads().isEmpty()) return
+        android.app.AlertDialog.Builder(this)
+            .setTitle("Xoá lịch sử tải xuống?")
+            .setMessage("Chỉ xoá danh sách này, các tệp đã tải vẫn còn trong máy.")
+            .setPositiveButton("Xoá") { _, _ ->
+                prefs.edit().remove("downloads").apply()
+                populateDownloads()
+            }
+            .setNegativeButton("Huỷ", null)
+            .show()
     }
 
     private fun populateDownloads() {
