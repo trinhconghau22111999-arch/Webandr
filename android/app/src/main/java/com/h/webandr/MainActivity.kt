@@ -1055,7 +1055,6 @@ class MainActivity : Activity() {
             isChecked = oneTapOn
         }
         m.add(0, 15, 0, "Đặt lại zoom trang này")
-        m.add(0, 16, 0, "Chọn tài khoản Google trên máy")
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 3 -> showList("Dấu trang", "bookmarks", false)
@@ -1068,7 +1067,6 @@ class MainActivity : Activity() {
                 13 -> toggleAdSkip()
                 14 -> toggleOneTap()
                 15 -> resetZoom()
-                16 -> pickGoogleAccount()
             }
             true
         }
