@@ -1752,6 +1752,35 @@ class MainActivity : Activity() {
             }
         }
 
+        // Huy tep dang nhan do dang: dong luong ghi va xoa tep tam.
+        @JavascriptInterface
+        fun discardReceived(id: String, path: String) {
+            try {
+                synchronized(recordings) { recordings.remove(id)?.let { try { it.close() } catch (e: Exception) { } } }
+                val f = File(path)
+                if (isInReceivedDir(f) && f.isFile) f.delete()
+            } catch (e: Exception) {
+            }
+        }
+
+        // Chep tep da nhan sang Tai xuong/TruyenTep trong luong nen (tep lon khong treo giao dien).
+        // Xong goi window.__published(ten, ok) trong trang Truyen tep. Tra ve true neu da bat dau chep.
+        @JavascriptInterface
+        fun publishDownloadAsync(path: String, mime: String, name: String): Boolean {
+            val f = File(path)
+            if (!isInReceivedDir(f) || !f.isFile) return false
+            val type = if (mime.isNotEmpty()) mime else guessMime(f.name)
+            Thread {
+                val ok = try { publishToDownloads(f, type) } catch (e: Exception) { false }
+                runOnUiThread {
+                    camWeb?.evaluateJavascript(
+                        "(window.__published&&window.__published(" + JSONObject.quote(name) + "," + ok + "))", null
+                    )
+                }
+            }.start()
+            return true
+        }
+
         // Ghi de anh da sua. ext rong = giu nguyen duoi tep; tra ve duong dan moi ("" neu loi).
         @JavascriptInterface
         fun saveEdited(path: String, b64: String, ext: String): String {

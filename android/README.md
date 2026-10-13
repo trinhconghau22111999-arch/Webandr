@@ -37,10 +37,13 @@ Repo này được sao chép từ `Qrtuxa` (đủ lịch sử commit). Thư mụ
 
 - **Gửi/nhận tệp** (trong màn Truyền tệp, giao thức DataChannel như bản máy tính):
   - Nhận: điện thoại kia gửi tệp → app gom đủ rồi lưu vào
-    `Android/data/com.h.webandr/files/Download/TruyenTep` và chép thêm vào **Tải xuống/TruyenTep**
-    (tối đa 300 MB/tệp, mất kết nối giữa chừng thì huỷ).
+    `Android/data/com.h.webandr/files/Download/TruyenTep` và chép thêm vào **Tải xuống/TruyenTep**.
+    Tệp được **ghi thẳng xuống đĩa theo từng cụm ~384 KB** (không gom cả tệp vào RAM) nên gửi được
+    tệp nhiều GB; **không còn giới hạn dung lượng** ngoài chỗ trống của máy. Có thanh tiến độ khi
+    gửi/nhận; việc chép sang Tải xuống chạy ngầm. Mất kết nối giữa chừng hoặc hết dung lượng thì
+    huỷ và xoá tệp dở.
   - Gửi: khi đã kết nối hiện nút **Gửi tệp** để chọn tệp trên điện thoại và gửi sang máy kia.
-- **Sửa ảnh nhận được**: ảnh nhận về tự mở trình sửa (✂️ Cắt, 🔄 Xoay, ✏️ Vẽ, 🔲 Đánh dấu,
+- **Sửa ảnh nhận được**: ảnh nhận về (≤ 25 MB) tự mở trình sửa (✂️ Cắt, 🔄 Xoay, ✏️ Vẽ, 🔲 Đánh dấu,
   ↩ Hoàn tác 1 bước). Mỗi lần sửa tự ghi đè tệp đã nhận; nút 💾 chép bản hiện tại vào Tải xuống/TruyenTep.
 - **Chặn quảng cáo YouTube bằng script**: tự bấm "Bỏ qua quảng cáo", quảng cáo không bỏ qua được thì
   tắt tiếng + tua đến cuối (xong tự bật lại tiếng/tốc độ), ẩn banner/quảng cáo hiển thị. Chạy trên mọi

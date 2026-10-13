@@ -35,6 +35,13 @@
   .codeBar .codeLabel{flex:1;}
   .codeBar button{width:40px;height:40px;padding:0;font-size:15px;}
   .sendBtn{width:100%;padding:15px;font-size:15px;}
+  #prog{display:none;max-width:520px;margin:12px auto 0;padding:0 16px;}
+  #prog.show{display:block;}
+  #prog .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 14px;}
+  #prog .txt{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;color:var(--mut);margin-bottom:8px;}
+  #prog .txt span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #prog .bar{height:8px;border-radius:999px;background:rgba(255,255,255,.1);overflow:hidden;}
+  #prog .bar i{display:block;height:100%;width:0;border-radius:999px;background:linear-gradient(90deg,var(--ac1),var(--ac2));transition:width .15s;}
   .hint{padding:14px 22px 24px;max-width:520px;margin:0 auto;font-size:12.5px;color:var(--mut);line-height:1.65;text-align:center;}
   #toast{position:fixed;left:12px;right:12px;bottom:18px;padding:10px 14px;border-radius:12px;background:rgba(30,18,62,.96);border:1px solid var(--line);box-shadow:0 10px 28px rgba(0,0,0,.45);font-size:13px;display:none;z-index:20;text-align:center;}
   #toast.show{display:block;}
@@ -59,6 +66,7 @@
   <button id="closeBtn" class="sec" aria-label="Đóng">✕</button>
 </header>
 <div id="slotList"></div>
+<div id="prog"><div class="box"><div class="txt"><span id="progName"></span><span id="progPct"></span></div><div class="bar"><i id="progFill"></i></div></div></div>
 <div class="hint">
   Mở Truyền tệp trên điện thoại cần kết nối, lấy mã 6 số rồi nhập vào ô phía trên.<br>
   Mã được nhớ cho lần sau. Khi đã kết nối, bấm <b>Gửi tệp</b> để chọn tệp gửi sang điện thoại;
@@ -257,10 +265,10 @@
           else if (msg.type === 'file-cancel') cancelIncoming(i, msg.transferId, false);
           return;
         }
-        // Du lieu nhi phan = 1 doan cua tep dang nhan - gom vao RAM, ghi 1 lan khi file-end.
+        // Du lieu nhi phan = 1 doan cua tep dang nhan - gom thanh cum nho roi ghi thang xuong dia.
         var t = slot.incomingTransfer;
-        if (!t) return;
-        t.chunks.push(e.data); t.received++;
+        if (!t || t.failed) return;
+        onIncomingChunk(i, t, e.data);
       };
     };
 
@@ -378,6 +386,7 @@
     clearTimeout(slot.reconnectTimer); clearTimeout(slot.disconnectGraceTimer);
     clearTimeout(slot.signalLostTimer);
     slot.reconnecting = false;
+    if (slot.incomingTransfer) cancelIncoming(i, slot.incomingTransfer.transferId, true, true);
     slot.dataChannel = null;
     if (slot.fbOfferListener && slot.fbGenRef) slot.fbGenRef.child('offer').off('value', slot.fbOfferListener);
     if (slot.fbIceListener && slot.fbGenRef) slot.fbGenRef.child('iceCandidatesHost').off('value', slot.fbIceListener);
@@ -398,9 +407,11 @@
 
   // ---------- Gui / nhan tep qua DataChannel (giao thuc giong ban may tinh) ----------
   // file-start (JSON) -> cac doan nhi phan -> file-end (JSON); file-cancel de huy.
+  // Nhan: ghi THANG xuong dia theo tung cum nho (khong gom ca tep vao RAM) -> gui duoc tep nhieu GB.
   var FILE_CHUNK = 64 * 1024;
-  var SAVE_SLICE = 3 * 65536;
-  var MAX_INCOMING = 300 * 1024 * 1024;
+  var WRITE_BATCH = 6 * FILE_CHUNK;            // ~384KB moi lan ghi xuong dia
+  var SEND_HIGH = 1024 * 1024;                 // ngung gui khi bo dem > 1MB
+  var KEEP_IMG_MAX = 25 * 1024 * 1024;         // chi giu anh <= 25MB trong RAM de mo trinh sua
   function say(msg) {
     if (A.toastMsg) { try { A.toastMsg(msg); return; } catch (e) {} }
     toast(msg);
@@ -409,52 +420,125 @@
   function isImageFile(mime, name) {
     return /^image\//.test(mime || '') || /\.(jpe?g|png|webp|gif|bmp)$/i.test(name || '');
   }
+  function fmtSize(n) {
+    if (n >= 1073741824) return (n / 1073741824).toFixed(2) + ' GB';
+    if (n >= 1048576) return (n / 1048576).toFixed(1) + ' MB';
+    return Math.max(1, Math.round(n / 1024)) + ' KB';
+  }
+
+  // Thanh tien do (cap nhat truc tiep vao DOM, khong ve lai the ket noi).
+  var progEl = document.getElementById('prog'), progName = document.getElementById('progName'),
+      progPct = document.getElementById('progPct'), progFill = document.getElementById('progFill');
+  var progLast = 0, progHideTimer = null;
+  function showProgress(label, done, total, force) {
+    var now = Date.now();
+    if (!force && now - progLast < 200) return;
+    progLast = now;
+    clearTimeout(progHideTimer);
+    var f = total > 0 ? Math.min(1, done / total) : 0;
+    progName.textContent = label;
+    progPct.textContent = Math.floor(f * 100) + '% · ' + fmtSize(done) + ' / ' + fmtSize(total);
+    progFill.style.width = (f * 100) + '%';
+    progEl.classList.add('show');
+  }
+  function hideProgress(delay) {
+    clearTimeout(progHideTimer);
+    progHideTimer = setTimeout(function () { progEl.classList.remove('show'); }, delay || 0);
+  }
+
+  function _b64FromBytes(bytes) {
+    var binary = '', step = 0x8000;
+    for (var k = 0; k < bytes.length; k += step) binary += String.fromCharCode.apply(null, bytes.subarray(k, k + step));
+    return btoa(binary);
+  }
 
   function startIncoming(i, msg) {
     var slot = camSlots[i];
     if (slot.incomingTransfer) cancelIncoming(i, slot.incomingTransfer.transferId, true);
     var name = String(msg.name || ('tep_' + Date.now()));
-    if ((msg.size || 0) > MAX_INCOMING) { say('⚠️ Tệp "' + name + '" quá lớn (>300MB), bỏ qua'); return; }
+    var info = null;
+    try { info = A.startReceived ? JSON.parse(A.startReceived(name)) : null; } catch (e) { info = null; }
+    if (!info || !info.id) { say('⚠️ Không tạo được tệp để nhận "' + name + '"'); slot.incomingTransfer = { transferId: msg.transferId, failed: true }; return; }
+    var mime = msg.mimeType || 'application/octet-stream', size = msg.size || 0;
     slot.incomingTransfer = {
-      transferId: msg.transferId, chunks: [], name: name,
-      mimeType: msg.mimeType || 'application/octet-stream', size: msg.size || 0, received: 0
+      transferId: msg.transferId, name: name, mimeType: mime, size: size, written: 0, got: 0,
+      id: info.id, path: info.path, pend: [], pendBytes: 0,
+      keep: (isImageFile(mime, name) && size <= KEEP_IMG_MAX) ? [] : null
     };
-    say('📥 Đang nhận "' + name + '"...');
+    showProgress('📥 Đang nhận ' + name, 0, size, true);
+  }
+
+  function _flushIncoming(t) {
+    if (!t.pendBytes) return true;
+    var buf = new Uint8Array(t.pendBytes), off = 0;
+    for (var k = 0; k < t.pend.length; k++) { buf.set(new Uint8Array(t.pend[k]), off); off += t.pend[k].byteLength; }
+    t.pend = []; t.pendBytes = 0;
+    var ok = false;
+    try { ok = !!A.appendChunk(t.id, _b64FromBytes(buf)); } catch (e) { ok = false; }
+    if (ok) t.written += buf.length;
+    return ok;
+  }
+
+  function onIncomingChunk(i, t, data) {
+    var len = data.byteLength || 0;
+    camSlots[i].lastPingAt = Date.now();   // dang co du lieu den = ket noi con song
+    t.got += len;
+    if (t.keep) t.keep.push(data);
+    t.pend.push(data); t.pendBytes += len;
+    if (t.pendBytes >= WRITE_BATCH) {
+      if (!_flushIncoming(t)) { failIncoming(i, t, '⚠️ Ghi tệp thất bại (có thể hết dung lượng)'); return; }
+    }
+    showProgress('📥 Đang nhận ' + t.name, t.got, t.size);
+  }
+
+  function _discard(t) {
+    try { if (A.discardReceived && t.id) A.discardReceived(t.id, t.path || ''); } catch (e) {}
+  }
+
+  function failIncoming(i, t, msg) {
+    var slot = camSlots[i];
+    t.failed = true; t.pend = []; t.keep = null;
+    _discard(t);
+    if (slot.incomingTransfer === t) slot.incomingTransfer = { transferId: t.transferId, failed: true };
+    hideProgress(0); say(msg);
+    try { if (slot.dataChannel && slot.dataChannel.readyState === 'open') slot.dataChannel.send(JSON.stringify({ type: 'file-cancel', transferId: t.transferId })); } catch (e) {}
   }
 
   function cancelIncoming(i, transferId, silent, force) {
     var slot = camSlots[i], t = slot.incomingTransfer;
     if (!t || (!force && t.transferId !== transferId)) return;
-    slot.incomingTransfer = null; t.chunks = null;
-    if (!silent) say('❌ Đã hủy nhận tệp (mất kết nối giữa chừng)');
+    slot.incomingTransfer = null;
+    if (!t.failed) { t.pend = []; t.keep = null; _discard(t); }
+    hideProgress(0);
+    if (!silent && !t.failed) say('❌ Đã hủy nhận tệp (mất kết nối giữa chừng)');
   }
 
   async function finishIncoming(i, transferId) {
     var slot = camSlots[i], t = slot.incomingTransfer;
     if (!t || t.transferId !== transferId) return;
     slot.incomingTransfer = null;
-    var blob = new Blob(t.chunks, { type: t.mimeType });
-    t.chunks = null;
-    var info = null;
-    try { info = A.startReceived ? JSON.parse(A.startReceived(t.name)) : null; } catch (e) { info = null; }
-    if (!info || !info.id) { say('⚠️ Nhận tệp thất bại (không tạo được tệp)'); return; }
-    var ok = true;
-    try {
-      for (var off = 0; off < blob.size; off += SAVE_SLICE) {
-        var buf = await blob.slice(off, off + SAVE_SLICE).arrayBuffer();
-        if (!A.appendChunk(info.id, _arrayBufferToBase64(buf))) { ok = false; break; }
-      }
-    } catch (e) { ok = false; }
-    var fin = false; try { fin = A.finishFile(info.id); } catch (e) {}
-    if (!ok || !fin) { say('⚠️ Nhận tệp thất bại'); return; }
-    var pub = false;
-    try { pub = A.publishDownload ? A.publishDownload(info.path, t.mimeType) : false; } catch (e) {}
-    say('📥 Đã nhận: ' + t.name + (pub ? ' (đã lưu vào Tải xuống/TruyenTep)' : ''));
-    if (isImageFile(t.mimeType, t.name)) {
-      openImageReview(blob, info.path, t.name);
+    if (t.failed) { hideProgress(0); return; }
+    var ok = _flushIncoming(t);
+    var fin = false; try { fin = !!A.finishFile(t.id); } catch (e) {}
+    if (!ok || !fin) { _discard(t); hideProgress(0); say('⚠️ Nhận tệp thất bại'); return; }
+    showProgress('📥 Đã nhận ' + t.name, t.size || t.got, t.size || t.got, true);
+    var keep = t.keep; t.keep = null;
+    if (keep) {
+      var blob = new Blob(keep, { type: t.mimeType });
+      openImageReview(blob, t.path, t.name);
       try { if (A.showOverlay) A.showOverlay(); } catch (e) {}
     }
+    // Chep sang Tai xuong/TruyenTep chay ngam (tep lon khong lam treo giao dien); ket qua ve qua window.__published.
+    var started = false;
+    try { started = A.publishDownloadAsync ? !!A.publishDownloadAsync(t.path, t.mimeType, t.name) : false; } catch (e) {}
+    if (!started) { say('📥 Đã nhận: ' + t.name); hideProgress(1500); }
+    else showProgress('📂 Đang chép "' + t.name + '" vào Tải xuống...', 1, 1, true);
   }
+
+  window.__published = function (name, ok) {
+    hideProgress(800);
+    say(ok ? ('📥 Đã nhận: ' + name + ' (đã lưu vào Tải xuống/TruyenTep)') : ('📥 Đã nhận: ' + name + ' (không chép được vào Tải xuống)'));
+  };
 
   function pickAndSend(i) {
     var slot = camSlots[i];
@@ -470,27 +554,43 @@
     input.click();
   }
 
+  // Cho den khi bo dem gui xuong thap (su kien bufferedamountlow), co timeout du phong.
+  function waitDrain(ch) {
+    return new Promise(function (resolve) {
+      var done = false;
+      function fin() { if (done) return; done = true; ch.onbufferedamountlow = null; clearTimeout(tm); resolve(); }
+      var tm = setTimeout(fin, 200);
+      ch.onbufferedamountlow = fin;
+    });
+  }
+
   async function sendFileToPhone(i, file) {
     var slot = camSlots[i], ch = slot.dataChannel;
     if (!ch || ch.readyState !== 'open') { say('Mất kết nối, không gửi được tệp'); return; }
     var id = 'out_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
     var total = Math.max(1, Math.ceil(file.size / FILE_CHUNK));
-    say('📤 Đang gửi "' + file.name + '" sang ĐT ' + (i + 1) + '...');
+    try { ch.bufferedAmountLowThreshold = 256 * 1024; } catch (e) {}
+    showProgress('📤 Đang gửi ' + file.name, 0, file.size, true);
     try {
       ch.send(JSON.stringify({ type: 'file-start', transferId: id, name: file.name,
         mimeType: file.type || 'application/octet-stream', size: file.size, totalChunks: total }));
       for (var off = 0; off < file.size; off += FILE_CHUNK) {
-        if (slot.dataChannel !== ch || ch.readyState !== 'open') { say('❌ Mất kết nối giữa chừng khi đang gửi "' + file.name + '"'); return; }
-        while (ch.bufferedAmount > 8 * FILE_CHUNK) {
-          await sleep(30);
-          if (slot.dataChannel !== ch || ch.readyState !== 'open') { say('❌ Mất kết nối giữa chừng khi đang gửi "' + file.name + '"'); return; }
+        if (slot.dataChannel !== ch || ch.readyState !== 'open') { hideProgress(0); say('❌ Mất kết nối giữa chừng khi đang gửi "' + file.name + '"'); return; }
+        while (ch.bufferedAmount > SEND_HIGH) {
+          await waitDrain(ch);
+          if (slot.dataChannel !== ch || ch.readyState !== 'open') { hideProgress(0); say('❌ Mất kết nối giữa chừng khi đang gửi "' + file.name + '"'); return; }
         }
         var buf = await file.slice(off, off + FILE_CHUNK).arrayBuffer();
         ch.send(buf);
+        showProgress('📤 Đang gửi ' + file.name, Math.min(file.size, off + FILE_CHUNK), file.size);
       }
+      // Cho bo dem gui het roi moi bao xong.
+      while (ch.bufferedAmount > 0 && ch.readyState === 'open') await sleep(50);
       ch.send(JSON.stringify({ type: 'file-end', transferId: id }));
+      showProgress('📤 Đã gửi ' + file.name, file.size, file.size, true); hideProgress(1500);
       say('✓ Đã gửi "' + file.name + '" sang điện thoại');
     } catch (err) {
+      hideProgress(0);
       say('❌ Gửi tệp thất bại: ' + ((err && err.message) || err));
       try { ch.send(JSON.stringify({ type: 'file-cancel', transferId: id })); } catch (e2) {}
     }
