@@ -20,14 +20,11 @@ Repo này được sao chép từ `Qrtuxa` (đủ lịch sử commit). Thư mụ
 
 ## Các tính năng đã chuyển thêm
 
-- **QR Cam** (menu ⋮ → "QR Cam"): nhập mã 6 số của app QrtuxaCam (tối đa 4 điện thoại),
-  xem trực tiếp qua WebRTC (lưới 1/2/4 ô), tự nối lại khi mất tín hiệu, nhớ mã
-  đã nhập. Dùng chung Firebase `qrremod`, nhánh `rooms/{mã}`. Điện thoại cũng có
-  thể gõ chữ vào ô đang chọn trong trình duyệt (text-edit).
-- **Quay video + hẹn giờ**: nút ⏺ trên từng ô để quay, nút ⚙ đặt giờ bắt đầu/kết
-  thúc lặp lại mỗi ngày. File `.webm` lưu ở thư mục riêng của app
-  (`Android/data/com.h.webandr/files/Movies/QRCam`); app báo đường dẫn khi lưu xong.
-  Cần để app mở (màn hình tự giữ sáng khi đang kết nối/quay).
+- **QR Cam** (menu ⋮ → "QR Cam"): chỉ **1 thiết bị, 1 ô nhập mã**. Nhập mã 6 số của app
+  QrtuxaCam để kết nối truyền tệp qua WebRTC DataChannel, tự nối lại khi mất tín hiệu, nhớ
+  mã đã nhập. Dùng chung Firebase `qrremod`, nhánh `rooms/{mã}`. Điện thoại cũng có thể gõ
+  chữ vào ô đang chọn trong trình duyệt (text-edit). Đã bỏ nút "Xem trực tiếp", lưới xem
+  hình và quay video/hẹn giờ.
 - **Mật khẩu đã lưu**: hỏi lưu khi gửi form đăng nhập, tự điền khi vào lại trang,
   lưu mã hoá bằng Android Keystore. Xem/xoá ở menu ⋮ → "Mật khẩu đã lưu".
 - **Chia đôi màn hình** (Telegram/Zalo/Facebook/YouTube/Google): menu ⋮ → "Chia đôi
@@ -43,8 +40,7 @@ Repo này được sao chép từ `Qrtuxa` (đủ lịch sử commit). Thư mụ
   - Nhận: điện thoại QrtuxaCam gửi tệp → app gom đủ rồi lưu vào
     `Android/data/com.h.webandr/files/Download/QRCam` và chép thêm vào **Tải xuống/QRCam**
     (tối đa 300 MB/tệp, mất kết nối giữa chừng thì huỷ).
-  - Gửi: khi ô đang kết nối kiểu truyền tệp (có DataChannel, không có video) hiện nút 📤
-    để chọn tệp trên điện thoại và gửi sang máy kia.
+  - Gửi: khi đã kết nối hiện nút **Gửi tệp** để chọn tệp trên điện thoại và gửi sang máy kia.
 - **Sửa ảnh nhận được**: ảnh nhận về tự mở trình sửa (✂️ Cắt, 🔄 Xoay, ✏️ Vẽ, 🔲 Đánh dấu,
   ↩ Hoàn tác 1 bước). Mỗi lần sửa tự ghi đè tệp đã nhận; nút 💾 chép bản hiện tại vào Tải xuống/QRCam.
 - **Chặn quảng cáo YouTube bằng script**: tự bấm "Bỏ qua quảng cáo", quảng cáo không bỏ qua được thì

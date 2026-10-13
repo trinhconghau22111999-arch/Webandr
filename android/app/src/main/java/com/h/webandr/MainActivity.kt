@@ -109,7 +109,7 @@ class MainActivity : Activity() {
     private lateinit var content: FrameLayout
     private lateinit var tabBar: LinearLayout
     private lateinit var urlBar: EditText
-    private lateinit var bookmarkBtn: TextView
+    private lateinit var bookmarkBtn: android.widget.ImageView
     private lateinit var progress: ProgressBar
     private lateinit var qrOverlay: FrameLayout
     private var qrWeb: WebView? = null
@@ -165,6 +165,14 @@ class MainActivity : Activity() {
     )
 
     private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+
+    // Nen bo goc + hieu ung cham dung chung cho cac nut tren thanh dia chi.
+    private fun rippleBg(fill: Int, radiusDp: Int): android.graphics.drawable.Drawable {
+        val r = dp(radiusDp).toFloat()
+        val shape = android.graphics.drawable.GradientDrawable().apply { setColor(fill); cornerRadius = r }
+        val mask = android.graphics.drawable.GradientDrawable().apply { setColor(Color.WHITE); cornerRadius = r }
+        return android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(0x44FFFFFF), shape, mask)
+    }
 
     // ====================== Vong doi ======================
 
@@ -267,27 +275,35 @@ class MainActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setBackgroundColor(COLOR_BAR)
-            setPadding(dp(4), dp(4), dp(4), dp(4))
+            setPadding(dp(6), dp(6), dp(6), dp(6))
         }
-        fun iconBtn(label: String, onClick: (View) -> Unit): TextView = TextView(this).apply {
-            text = label
-            textSize = 20f
-            setTextColor(Color.WHITE)
-            gravity = Gravity.CENTER
-            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40))
+        // Nut icon vector tron, co hieu ung cham (ripple), dong bo mau.
+        fun iconBtn(res: Int, desc: String, tint: Int = Color.WHITE, fill: Int = 0x00000000,
+                    onClick: (View) -> Unit): android.widget.ImageView = android.widget.ImageView(this).apply {
+            setImageResource(res)
+            setColorFilter(tint)
+            scaleType = android.widget.ImageView.ScaleType.FIT_CENTER
+            setPadding(dp(9), dp(9), dp(9), dp(9))
+            contentDescription = desc
+            background = rippleBg(fill, 20)
+            layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply { leftMargin = dp(2); rightMargin = dp(2) }
             setOnClickListener { onClick(it) }
         }
-        bar.addView(iconBtn("⋮") { showMenu(it) })
-        bar.addView(iconBtn("◀") { active?.webView?.let { w -> if (w.canGoBack()) w.goBack() } })
-        bar.addView(iconBtn("▶") { active?.webView?.let { w -> if (w.canGoForward()) w.goForward() } })
-        bar.addView(iconBtn("⟳") { active?.webView?.reload() })
+        bar.addView(iconBtn(R.drawable.ic_menu, "Menu") { showMenu(it) })
+        bar.addView(iconBtn(R.drawable.ic_back, "Quay lại") { active?.webView?.let { w -> if (w.canGoBack()) w.goBack() } })
+        bar.addView(iconBtn(R.drawable.ic_forward, "Tiến tới") { active?.webView?.let { w -> if (w.canGoForward()) w.goForward() } })
+        bar.addView(iconBtn(R.drawable.ic_reload, "Tải lại") { active?.webView?.reload() })
 
         urlBar = EditText(this).apply {
             setSingleLine(true)
             textSize = 14f
-            setTextColor(Color.BLACK)
-            setBackgroundColor(0xFFF2EEFA.toInt())
-            setPadding(dp(12), dp(6), dp(12), dp(6))
+            setTextColor(0xFF1E1633.toInt())
+            setHintTextColor(0xFF8A80A6.toInt())
+            background = android.graphics.drawable.GradientDrawable().apply {
+                setColor(0xFFF2EEFA.toInt())
+                cornerRadius = dp(20).toFloat()
+            }
+            setPadding(dp(16), dp(6), dp(16), dp(6))
             imeOptions = EditorInfo.IME_ACTION_GO
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_URI
             setSelectAllOnFocus(true)
@@ -302,19 +318,13 @@ class MainActivity : Activity() {
                 } else false
             }
         }
-        bar.addView(urlBar, LinearLayout.LayoutParams(0, dp(40), 1f))
-        bar.addView(iconBtn("📷") { takeScreenshot() })
-        bookmarkBtn = iconBtn("☆") { toggleBookmark() }
+        bar.addView(urlBar, LinearLayout.LayoutParams(0, dp(40), 1f).apply { leftMargin = dp(4); rightMargin = dp(4) })
+        bar.addView(iconBtn(R.drawable.ic_shot, "Chụp màn hình") { takeScreenshot() })
+        bookmarkBtn = iconBtn(R.drawable.ic_star_off, "Dấu trang") { toggleBookmark() }
         bar.addView(bookmarkBtn)
-        bar.addView(iconBtn("⬇") { openDownloads() }.apply {
-            textSize = 30f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-            layoutParams = LinearLayout.LayoutParams(dp(52), dp(44))
-        })
-        bar.addView(iconBtn("✕") { goHome() }.apply {
-            setBackgroundColor(0xFFD32F2F.toInt())
-            contentDescription = "Màn hình chính"
-            (layoutParams as LinearLayout.LayoutParams).leftMargin = dp(4)
+        bar.addView(iconBtn(R.drawable.ic_download, "Tải xuống") { openDownloads() })
+        bar.addView(iconBtn(R.drawable.ic_close, "Màn hình chính", tint = 0xFFFF9A9A.toInt(), fill = 0x33FF6B6B) { goHome() }.apply {
+            (layoutParams as LinearLayout.LayoutParams).leftMargin = dp(6)
         })
         col.addView(bar, LinearLayout.LayoutParams(MATCH, WRAP))
 
@@ -1135,8 +1145,8 @@ class MainActivity : Activity() {
     private fun updateBookmarkBtn() {
         val u = displayUrl(active?.url ?: "")
         val on = u.isNotEmpty() && readList("bookmarks").any { it[1] == u }
-        bookmarkBtn.text = if (on) "★" else "☆"
-        bookmarkBtn.setTextColor(if (on) 0xFFFFC107.toInt() else Color.WHITE)
+        bookmarkBtn.setImageResource(if (on) R.drawable.ic_star_on else R.drawable.ic_star_off)
+        bookmarkBtn.setColorFilter(if (on) 0xFFFFC107.toInt() else Color.WHITE)
     }
 
     // ====================== Trang tai xuong trong app ======================
