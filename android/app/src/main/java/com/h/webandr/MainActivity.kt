@@ -183,7 +183,7 @@ class MainActivity : Activity() {
         adSkipOn = prefs.getBoolean("adSkip", true)
         buildUi()
         ui.postDelayed(sweep, SWEEP_MS)
-        // Da tung dung QR Cam -> mo ngam de tu ket noi lai va chay lich quay.
+        // Da tung dung Truyen tep -> mo ngam de tu ket noi lai.
         if (prefs.getBoolean("camUsed", false)) ensureCamWeb()
 
         if (Build.VERSION.SDK_INT <= 28 &&
@@ -246,7 +246,7 @@ class MainActivity : Activity() {
             drawerScrim.visibility == View.VISIBLE -> closeDrawer()
             qrOverlay.visibility == View.VISIBLE -> qrOverlay.visibility = View.GONE
             camOverlay.visibility == View.VISIBLE -> {
-                // Trang QR Cam tu dong trinh sua anh / xem truc tiep truoc; neu khong co gi de dong thi dong ca overlay.
+                // Trang Truyen tep tu dong trinh sua anh truoc; neu khong co gi de dong thi dong ca overlay.
                 val w = camWeb
                 if (w == null) camOverlay.visibility = View.GONE
                 else w.evaluateJavascript("(window.__camBack?window.__camBack():false)") { r ->
@@ -1054,7 +1054,7 @@ class MainActivity : Activity() {
         m.add(0, 7, 0, "Xoá lịch sử")
         m.add(0, 3, 0, "Dấu trang")
         m.add(0, 5, 0, "QR Remote Input")
-        m.add(0, 9, 0, "QR Cam (xem webcam điện thoại)")
+        m.add(0, 9, 0, "Truyền tệp")
         m.add(0, 11, 0, "Chặn web đen / lừa đảo")
         m.add(0, 13, 0, "Chặn quảng cáo YouTube (tự bấm Bỏ qua)").apply {
             isCheckable = true
@@ -1627,14 +1627,14 @@ class MainActivity : Activity() {
         }
     }
 
-    // ====================== QR Cam ======================
+    // ====================== Truyen tep ======================
 
     private val recordings = HashMap<String, FileOutputStream>()
     private var recSeq = 0
 
     private fun camDir(): File {
         val base = getExternalFilesDir(Environment.DIRECTORY_MOVIES) ?: filesDir
-        val d = File(base, "QRCam")
+        val d = File(base, "TruyenTep")
         d.mkdirs()
         return d
     }
@@ -1658,7 +1658,7 @@ class MainActivity : Activity() {
         w.settings.domStorageEnabled = true
         w.settings.mediaPlaybackRequiresUserGesture = false
         w.webViewClient = assetClient()
-        // Can onShowFileChooser de nut "gui tep" (📤) trong trang QR Cam chon duoc tep tren dien thoai.
+        // Can onShowFileChooser de nut "gui tep" (📤) trong trang Truyen tep chon duoc tep tren dien thoai.
         w.webChromeClient = object : WebChromeClient() {
             override fun onShowFileChooser(
                 webView: WebView?, filePathCallback: ValueCallback<Array<Uri>>?,
@@ -1666,7 +1666,7 @@ class MainActivity : Activity() {
             ): Boolean = openFileChooser(filePathCallback, fileChooserParams)
         }
         w.addJavascriptInterface(CamBridge(), "AndroidCam")
-        w.loadUrl("https://appassets.androidplatform.net/assets/qrcam.html")
+        w.loadUrl("https://appassets.androidplatform.net/assets/truyentep.html")
         camWeb = w
         camOverlay.addView(w, FrameLayout.LayoutParams(MATCH, MATCH))
     }
@@ -1768,7 +1768,7 @@ class MainActivity : Activity() {
             }
         }
 
-        // Chep tep da nhan vao thu muc Tai xuong/QRCam de mo tu bat ky ung dung nao.
+        // Chep tep da nhan vao thu muc Tai xuong/TruyenTep de mo tu bat ky ung dung nao.
         @JavascriptInterface
         fun publishDownload(path: String, mime: String): Boolean {
             return try {
@@ -1786,7 +1786,7 @@ class MainActivity : Activity() {
             runOnUiThread { Toast.makeText(this@MainActivity, msg, Toast.LENGTH_SHORT).show() }
         }
 
-        // Co anh moi ve: dua trang QR Cam len truoc de hien trinh sua anh.
+        // Co anh moi ve: dua trang Truyen tep len truoc de hien trinh sua anh.
         @JavascriptInterface
         fun showOverlay() {
             runOnUiThread {
@@ -1816,7 +1816,7 @@ class MainActivity : Activity() {
 
     private fun receivedDir(): File {
         val base = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir
-        val d = File(base, "QRCam")
+        val d = File(base, "TruyenTep")
         d.mkdirs()
         return d
     }
@@ -1836,7 +1836,7 @@ class MainActivity : Activity() {
 
     private fun publishToDownloads(src: File, mime: String): Boolean {
         return if (Build.VERSION.SDK_INT >= 29) publishToDownloadsQ(src, mime) else {
-            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "QRCam")
+            val dir = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "TruyenTep")
             dir.mkdirs()
             src.copyTo(File(dir, src.name), overwrite = true)
             true
@@ -1848,7 +1848,7 @@ class MainActivity : Activity() {
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, src.name)
             put(MediaStore.MediaColumns.MIME_TYPE, mime)
-            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/QRCam")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/TruyenTep")
         }
         val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: return false
         val out = contentResolver.openOutputStream(uri) ?: return false
@@ -2510,7 +2510,7 @@ private val PW_JS = """
 })();
 """
 
-// Xoa `del` ky tu truoc con tro roi chen `ins` (nhap chu tu dien thoai qua QR Cam).
+// Xoa `del` ky tu truoc con tro roi chen `ins` (nhap chu tu dien thoai qua Truyen tep).
 private val TEXT_EDIT_FN = """
 function(del, ins) {
   var el = document.activeElement;

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>QR Cam</title>
+<title>Truyền tệp</title>
 <style>
   :root{--bg1:#120a26;--bg2:#241545;--card:rgba(255,255,255,.07);--line:rgba(255,255,255,.12);--txt:#f3eefc;--mut:#a79bc4;--ac1:#8b2dff;--ac2:#c026ff;--ok:#3ddc84;--warn:#f5b942;--err:#ff6b6b;}
   *{box-sizing:border-box;-webkit-tap-highlight-color:transparent;}
@@ -54,22 +54,22 @@
 </head>
 <body>
 <header>
-  <span class="logo">📷</span>
-  <b>QR Cam</b>
+  <span class="logo">📂</span>
+  <b>Truyền tệp</b>
   <button id="closeBtn" class="sec" aria-label="Đóng">✕</button>
 </header>
 <div id="slotList"></div>
 <div class="hint">
-  Mở app QrtuxaCam trên điện thoại cần kết nối, lấy mã 6 số rồi nhập vào ô phía trên.<br>
+  Mở Truyền tệp trên điện thoại cần kết nối, lấy mã 6 số rồi nhập vào ô phía trên.<br>
   Mã được nhớ cho lần sau. Khi đã kết nối, bấm <b>Gửi tệp</b> để chọn tệp gửi sang điện thoại;
-  tệp điện thoại gửi sang tự lưu vào <b>Tải xuống/QRCam</b>.
+  tệp điện thoại gửi sang tự lưu vào <b>Tải xuống/TruyenTep</b>.
 </div>
 
 <div id="imgReview">
   <div id="imgTop">
     <b id="imgName"></b><span class="sp"></span>
     <button id="imgUndo" class="sec" title="Hoàn tác thao tác vừa rồi">↩</button>
-    <button id="imgSaveDl" class="sec" title="Lưu bản này vào Tải xuống/QRCam">💾 Tải xuống</button>
+    <button id="imgSaveDl" class="sec" title="Lưu bản này vào Tải xuống/TruyenTep">💾 Tải xuống</button>
     <button id="imgClose" class="sec">✕</button>
   </div>
   <div id="imgStage"><div id="imgWrap"><canvas id="imgCv"></canvas><canvas id="imgPrev"></canvas></div></div>
@@ -264,8 +264,6 @@
       };
     };
 
-    // Van giu 1 transceiver video (chi nhan) de tuong thich giao thuc cua app QrtuxaCam; khong hien thi hinh.
-    pc.addTransceiver('video', { direction: 'recvonly' });
 
     pc.onicecandidate = function (e) {
       if (slot.pc !== pc) return;
@@ -312,7 +310,7 @@
       slot.generation = gen;
       _resubscribeGen(i, gen);
     }, function (err) {
-      console.error('QRCam hostGeneration permission error', err);
+      console.error('Truyentep hostGeneration permission error', err);
       slot.permissionError = true; renderCamSlotList();
       toast('⚠️ Firebase từ chối quyền đọc/ghi (kiểm tra Database Rules)');
     });
@@ -332,7 +330,7 @@
         var answer = await slot.pc.createAnswer();
         await slot.pc.setLocalDescription(answer);
         slot.fbGenRef.child('answer').set({ type: 'answer', sdp: answer.sdp });
-      } catch (e) { console.error('QRCam offer error', e); }
+      } catch (e) { console.error('Truyentep offer error', e); }
     }, function (err) { slot.permissionError = true; renderCamSlotList(); });
 
     slot.fbIceListener = slot.fbGenRef.child('iceCandidatesHost').on('value', function (snap) {
@@ -451,7 +449,7 @@
     if (!ok || !fin) { say('⚠️ Nhận tệp thất bại'); return; }
     var pub = false;
     try { pub = A.publishDownload ? A.publishDownload(info.path, t.mimeType) : false; } catch (e) {}
-    say('📥 Đã nhận: ' + t.name + (pub ? ' (đã lưu vào Tải xuống/QRCam)' : ''));
+    say('📥 Đã nhận: ' + t.name + (pub ? ' (đã lưu vào Tải xuống/TruyenTep)' : ''));
     if (isImageFile(t.mimeType, t.name)) {
       openImageReview(blob, info.path, t.name);
       try { if (A.showOverlay) A.showOverlay(); } catch (e) {}
@@ -580,7 +578,7 @@
   document.getElementById('imgSaveDl').onclick = function () {
     if (!imgState.path || !A.publishDownload) return;
     var ok = false; try { ok = A.publishDownload(imgState.path, ''); } catch (e) {}
-    say(ok ? '💾 Đã lưu bản này vào Tải xuống/QRCam' : '⚠️ Không lưu được vào Tải xuống');
+    say(ok ? '💾 Đã lưu bản này vào Tải xuống/TruyenTep' : '⚠️ Không lưu được vào Tải xuống');
   };
 
   pv.addEventListener('pointerdown', function (e) {
