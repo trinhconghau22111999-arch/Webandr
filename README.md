@@ -1,4 +1,9 @@
 > **Webandr** = bản sao của Qrtuxa, đã thêm ứng dụng Android x86_64 trong thư mục [`android/`](android/README.md).
+>
+> - **Android** (`android/`): trình duyệt + QR Remote Input + **Truyền tệp** (1 thiết bị, chỉ gửi/nhận tệp,
+>   không còn video). Mô tả đầy đủ ở [`android/README.md`](android/README.md).
+> - **Máy tính** (`desktop/`, `docs/`): code Electron gốc của Qrtuxa, **giữ nguyên** để tham khảo — phần
+>   "QR Cam" bên dưới (4 điện thoại, xem webcam, quay video) chỉ nói về bản máy tính này, KHÔNG áp dụng cho bản Android.
 
 # Qrtuxa — trình duyệt desktop + nhập liệu từ xa bằng QR + xem webcam điện thoại
 
@@ -56,7 +61,7 @@ Luồng hoạt động:
 Hữu ích khi cần nhập nhanh nội dung từ mã vạch/QR vào máy tính (VD mã sản
 phẩm, link, số serial...) mà không cần máy quét mã vạch chuyên dụng.
 
-## 3. QR Cam — xem webcam điện thoại
+## 3. QR Cam — xem webcam điện thoại (chỉ bản máy tính)
 
 Cần điện thoại cài app
 QrtuxaCam (xem
@@ -141,11 +146,11 @@ npm run build      # đóng gói .exe (NSIS) bằng electron-builder
 
 ## Chế độ chỉ cùng mạng (LAN only)
 
-Mặc định bản này **chỉ kết nối khi điện thoại và máy tính cùng Wi-Fi hoặc cùng hotspot**.
+Mặc định **chỉ kết nối khi hai máy cùng Wi-Fi hoặc cùng hotspot** (áp dụng cho QR Cam bản máy tính và Truyền tệp bản Android).
 
-- Không dùng STUN/TURN, bỏ mọi đường đi qua Internet; video và tệp đi thẳng giữa 2 máy.
+- Không dùng STUN/TURN, bỏ mọi đường đi qua Internet; video/tệp đi thẳng giữa 2 máy.
 - Vẫn dùng Firebase để 2 máy tìm thấy nhau, nên mạng vẫn cần có Internet (4G của máy phát hotspot cũng được).
 - Khác mạng sẽ không lên hình (đúng chủ ý).
-- Muốn trở lại như cũ (cả khi khác mạng): đổi `LAN_ONLY = false` (file JS/HTML) hoặc `LanOnly.ENABLED = false` (`webrtc/LanOnly.kt`).
+- Muốn trở lại như cũ (cả khi khác mạng): đổi `LAN_ONLY = false` trong `desktop/index.html` (bản máy tính) hoặc `android/app/src/main/assets/truyentep.html` (bản Android).
 - Lần đầu mở trên Windows, hãy bấm **Cho phép (Allow)** ở hộp thoại Tường lửa cho mạng riêng.
 - Nếu Wi-Fi công cộng bật "cách ly thiết bị", hãy dùng hotspot riêng.

@@ -7,7 +7,8 @@ Repo này được sao chép từ `Qrtuxa` (đủ lịch sử commit). Thư mụ
 ## Tính năng đã có trên Android
 
 - Trình duyệt nhiều tab (chạm tab để chuyển, nhấn giữ để đóng, nút ＋ mở tab mới)
-- Thanh địa chỉ/tìm kiếm Google, quay lại, tải lại
+- Thanh địa chỉ/tìm kiếm Google dạng viên thuốc; nút icon: menu ⋮, quay lại, tiến tới, tải lại,
+  chụp màn hình, dấu trang ★, tải xuống, ✕ về màn hình chính
 - Dấu trang, lịch sử, chế độ máy tính (đổi User-Agent)
 - Tải xuống (DownloadManager), chọn tệp để tải lên, camera/micro cho trang web,
   video toàn màn hình, link mở ngoài app (tel:, mailto:, intent:)
@@ -18,13 +19,13 @@ Repo này được sao chép từ `Qrtuxa` (đủ lịch sử commit). Thư mụ
   tự nhấn Enter (giống bản máy tính). Dùng chung Firebase `qrremod`, nhánh
   `sessions/{id}`.
 
-## Các tính năng đã chuyển thêm
+## Các tính năng khác
 
-- **Truyền tệp** (menu ⋮ → "Truyền tệp"): **1 thiết bị, 1 ô nhập mã 6 số**. Kết nối WebRTC
-  giống hệt trước đây (Firebase `qrremod`, nhánh `rooms/{mã}`), nhưng chỉ gửi/nhận tệp qua
-  DataChannel — **không còn stream video**, không còn "Xem trực tiếp" hay quay video. Tự nối lại
-  khi mất tín hiệu, nhớ mã đã nhập. Điện thoại kia cũng có thể gõ chữ vào ô đang chọn
-  trong trình duyệt (text-edit).
+- **Truyền tệp** (menu ⋮ → "Truyền tệp"; trang `assets/truyentep.html`): **1 thiết bị, 1 ô nhập mã
+  6 số**. Báo hiệu qua Firebase `qrremod`, nhánh `rooms/{mã}`, rồi truyền thẳng qua WebRTC
+  DataChannel. Chỉ **gửi/nhận tệp** — không có stream video, không "Xem trực tiếp", không quay video
+  hay hẹn giờ quay (đã bỏ hẳn so với bản QR Cam cũ). Tự nối lại khi mất tín hiệu, nhớ mã đã nhập.
+  Điện thoại kia cũng có thể gõ chữ vào ô đang chọn trong trình duyệt (text-edit).
 - **Mật khẩu đã lưu**: hỏi lưu khi gửi form đăng nhập, tự điền khi vào lại trang,
   lưu mã hoá bằng Android Keystore. Xem/xoá ở menu ⋮ → "Mật khẩu đã lưu".
 - **Chia đôi màn hình** (Telegram/Zalo/Facebook/YouTube/Google): menu ⋮ → "Chia đôi
@@ -34,9 +35,7 @@ Repo này được sao chép từ `Qrtuxa` (đủ lịch sử commit). Thư mụ
   đen / lừa đảo"); vào tên miền đó (hoặc tên miền con) sẽ hiện trang cảnh báo với
   nút "Quay lại an toàn" / "vẫn tiếp tục".
 
-## Đã chuyển thêm (bản 1.1.0)
-
-- **Gửi/nhận tệp (Truyền tệp)** (DataChannel, cùng giao thức bản máy tính):
+- **Gửi/nhận tệp** (trong màn Truyền tệp, giao thức DataChannel như bản máy tính):
   - Nhận: điện thoại kia gửi tệp → app gom đủ rồi lưu vào
     `Android/data/com.h.webandr/files/Download/TruyenTep` và chép thêm vào **Tải xuống/TruyenTep**
     (tối đa 300 MB/tệp, mất kết nối giữa chừng thì huỷ).
@@ -47,8 +46,8 @@ Repo này được sao chép từ `Qrtuxa` (đủ lịch sử commit). Thư mụ
   tắt tiếng + tua đến cuối (xong tự bật lại tiếng/tốc độ), ẩn banner/quảng cáo hiển thị. Chạy trên mọi
   tab và pane YouTube chia đôi. Bật/tắt: menu ⋮ → "Chặn quảng cáo YouTube".
 - **Nhớ zoom theo trang**: chụm/giãn ngón tay để zoom, app nhớ riêng cho từng tên miền và áp lại khi
-  mở lại trang đó. Menu ⋮ → "Đặt lại zoom trang này" để về mặc định.
-- **Nút "Mở link bằng 1 chạm"** (👆 trên thanh địa chỉ, cũng có trong menu ⋮): BẬT (mặc định) = chạm
+  mở lại trang đó. (Mục "Đặt lại zoom trang này" đã ẩn khỏi menu; chức năng vẫn còn trong code.)
+- **"Mở link bằng 1 chạm"** (menu ⋮): BẬT (mặc định) = chạm
   vào link là mở như bình thường. TẮT (nút mờ) = chạm vào link không mở, chặn cửa sổ pop-up; muốn mở
   1 link thì **nhấn giữ** link → chọn "Mở trong tab mới / Mở ở tab này / Sao chép". Link `#...` và
   `javascript:` vẫn chạy bình thường.
@@ -56,6 +55,14 @@ Repo này được sao chép từ `Qrtuxa` (đủ lịch sử commit). Thư mụ
 ## Chưa chuyển sang Android
 
 Nhật ký console (chỉ có ở bản máy tính).
+
+## Chế độ chỉ cùng mạng (LAN only)
+
+Truyền tệp mặc định **chỉ kết nối khi hai điện thoại cùng Wi-Fi hoặc cùng hotspot**: không dùng
+STUN/TURN, chỉ nhận các đường kết nối nội bộ; Firebase chỉ dùng để hai máy tìm thấy nhau nên vẫn
+cần có Internet. Khác mạng sẽ không kết nối (đúng chủ ý). Muốn cho phép cả khác mạng: đổi
+`LAN_ONLY = false` trong `android/app/src/main/assets/truyentep.html`. Nếu Wi-Fi công cộng bật
+"cách ly thiết bị" thì dùng hotspot riêng.
 
 ## Build
 
@@ -65,4 +72,4 @@ debug nên cài thẳng được (bật "Cài từ nguồn không rõ").
 
 Build local: cần JDK 17 + Android SDK 34, rồi `cd android && gradle assembleRelease`.
 
-`applicationId`: `com.h.webandr` · minSdk 24 · ABI: `x86_64`.
+`applicationId`: `com.h.webandr` · `versionName` = `1.2.<số lần build>` · minSdk 24 · ABI: `x86_64`.

@@ -1064,7 +1064,7 @@ class MainActivity : Activity() {
             isCheckable = true
             isChecked = oneTapOn
         }
-        m.add(0, 15, 0, "Đặt lại zoom trang này")
+        // Mục "Đặt lại zoom trang này" (id 15) đã ẩn khỏi menu; chức năng resetZoom() vẫn giữ nguyên.
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 3 -> showList("Dấu trang", "bookmarks", false)
